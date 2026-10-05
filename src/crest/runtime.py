@@ -189,3 +189,6 @@ class Runtime:
 
     def register_recovery_program(self, action_class: str, program: RecoveryProgram) -> None:
         self._recovery_programs[action_class] = program
+
+
+from .agent_runtime import CrestRuntime  # noqa: E402,F401  (product runtime)

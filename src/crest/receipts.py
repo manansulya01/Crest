@@ -109,6 +109,13 @@ class CapabilityReceipt:
         exp = datetime.fromisoformat(self.expires_at)
         return now.astimezone(timezone.utc) >= exp
 
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "CapabilityReceipt":
+        names = {f.name for f in dataclasses.fields(cls)}
+        d = {k: v for k, v in d.items() if k in names}
+        d["evidence"] = RecoveryEvidence(**d["evidence"])
+        return cls(**d)
+
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
 
