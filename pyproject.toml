@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "crest"
-version = "0.2.0"
+version = "0.3.0"
 description = "Crest: capability admission control plane for agent tool execution"
 requires-python = ">=3.11"
 dependencies = ["PyYAML>=6"]

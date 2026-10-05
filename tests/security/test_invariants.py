@@ -12,7 +12,7 @@ from crest.ledger import ExposureLedger
 from crest.learner import BrokenProposer, HeuristicProposer
 from crest.receipts import CapabilityReceipt, RecoveryEvidence
 from crest.runtime import Runtime, SecurityError
-from crest.verifier import TestConfig, Verifier
+from crest.verifier import VerificationConfig, Verifier
 from crest.workspace import Workspace
 
 NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -39,7 +39,7 @@ def admit_delete_file(rt: Runtime, recovery=None, target="a.txt"):
         target=target,
         params={},
         recovery=recovery,
-        test_config=TestConfig(trials=5, repeat_trials=1, seed=1),
+        test_config=VerificationConfig(trials=5, repeat_trials=1, seed=1),
         now=NOW,
     )
 
@@ -133,7 +133,7 @@ def test_invariant7_failed_verification_cannot_expand_scope():
     d = rt.evaluate_and_admit(
         action_class="delete_file", target_scope="*", target="a.txt", params={},
         recovery=BrokenProposer().propose("delete_file", "a.txt"),
-        test_config=TestConfig(trials=5, repeat_trials=1, seed=1), now=NOW,
+        test_config=VerificationConfig(trials=5, repeat_trials=1, seed=1), now=NOW,
     )
     assert not d.allow
     assert rt.capability("delete_file").state == CapabilityState.FORBIDDEN
@@ -151,7 +151,7 @@ def test_invariant8_receipt_scope_must_match_target():
     d = rt.evaluate_and_admit(
         action_class="delete_file", target_scope="*.txt", target="a.txt", params={},
         recovery=HeuristicProposer().propose("delete_file", "a.txt"),
-        test_config=TestConfig(trials=5, repeat_trials=1, seed=1), now=NOW,
+        test_config=VerificationConfig(trials=5, repeat_trials=1, seed=1), now=NOW,
     )
     assert d.allow
     ws = make_ws("b.json")

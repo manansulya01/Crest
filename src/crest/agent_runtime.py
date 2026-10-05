@@ -26,11 +26,22 @@ from .paths import WorkspaceViolation, canonical_within, relative_posix, scope_m
 from .receipts import CapabilityReceipt, RecoveryEvidence
 from .recovery import RecoveryContext, RecoveryProgram, get_handler
 from .store import CapabilityRow, SecurityStateCorrupt, Store
-from .verifier import TestConfig, Verifier
+from .generalization import GeneralizationVerifier
+from .verifier import VerificationConfig, Verifier
 from .workspace import Workspace
+from .drift import detect as detect_drift
 
 EVIDENCE_VERIFIED_FIXTURE = "VERIFIED_FIXTURE"
 EVIDENCE_VERIFIED_GENERAL = "VERIFIED_GENERAL"
+_EVIDENCE_RANK = {
+    "UNVERIFIED": 0, "PROPOSED": 1, "VERIFIED_FIXTURE": 2, "VERIFIED_FAMILY": 3, "VERIFIED_GENERAL": 4, "EXPIRED": 0, "REVOKED": 0,
+}
+
+
+def _evidence_allows(payload_classification: str, *, allowed_class: str, allow_fixture: bool) -> bool:
+    if payload_classification == "VERIFIED_FIXTURE" and not allow_fixture:
+        return False
+    return _EVIDENCE_RANK.get(payload_classification, 0) >= _EVIDENCE_RANK.get(allowed_class, 2)
 
 DEFAULT_EXPOSURE = {
     ("filesystem", "create_file"): 0.1,
@@ -88,6 +99,7 @@ def _operation_action(tool: str, operation: str) -> str:
 
 class CrestRuntime:
     def __init__(self, config: CrestConfig):
+        config.validate()
         self.config = config
         self.lock = threading.RLock()
         Path(self.config.workspace_root).mkdir(parents=True, exist_ok=True)
@@ -133,6 +145,35 @@ class CrestRuntime:
                 return {"receipt_id": receipt.bound_digest[:16], "status": receipt.status, "admitted": False, "reason": decision["reason"]}
             return self._admit_from_receipt(receipt, action_class, scope, evidence_classification, recovery)
 
+    def verify_generalized(
+        self,
+        *,
+        action_class: str,
+        scope: str,
+        recovery: RecoveryProgram,
+        family_ids: tuple[str, ...] = ("filesystem.single_file",),
+        seed: int = 0,
+    ) -> dict[str, Any]:
+        """Cross-fixture + holdout verification -> evidence-class admission.
+
+        The fixture verifier still produces the stored proof object; the
+        *classification* of that proof comes from the GeneralizationVerifier
+        result, never from the learner. Unverified/failed evidence never admits.
+        """
+        from .evidence import EvidenceClass
+
+        with self.lock:
+            gev = GeneralizationVerifier().verify(action_class=action_class, recovery=recovery, family_ids=family_ids, seed_base=seed)
+            if gev.evidence_class in (EvidenceClass.UNVERIFIED, EvidenceClass.PROPOSED, EvidenceClass.EXPIRED, EvidenceClass.REVOKED):
+                return {"admitted": False, "reason": f"insufficient evidence class: {gev.evidence_class.value}", "evidence_class": gev.evidence_class.value,
+                        "fixtures_tested": gev.fixtures_tested, "holdout_fixtures": gev.holdout_fixtures}
+            fixture_decision = self._evaluate_research(action_class=action_class, target_scope=scope, target="a.txt", recovery=recovery, trials=6, seed=seed)
+            receipt = fixture_decision["receipt"]
+            if not fixture_decision["allowed"]:
+                return {"receipt_id": receipt.bound_digest[:16], "status": receipt.status, "admitted": False,
+                        "reason": fixture_decision["reason"], "evidence_class": gev.evidence_class.value}
+            return self._admit_from_receipt(receipt, action_class, scope, gev.evidence_class.value, recovery, generalization=gev)
+
     def _evaluate_research(self, *, action_class, target_scope, target, recovery, trials, seed) -> dict[str, Any]:
         now = datetime.now(timezone.utc)
         constitution_snapshot = {
@@ -142,7 +183,7 @@ class CrestRuntime:
         }
         receipt = self.verifier.verify(
             action_class=action_class, target_scope=target_scope, target=target, params={},
-            recovery=recovery, test_config=TestConfig(trials=trials, repeat_trials=max(1, trials // 4), seed=seed),
+            recovery=recovery, test_config=VerificationConfig(trials=trials, repeat_trials=max(1, trials // 4), seed=seed),
             now=now, ttl_seconds=self.config.receipt_ttl_seconds,
         )
         ok = receipt.status == "VERIFIED" and receipt.evidence.recovery_success_rate >= self.config.min_recovery_success_rate and receipt.evidence.recovery_latency_p99_ms <= self.config.max_recovery_p99_ms
@@ -153,18 +194,35 @@ class CrestRuntime:
             "constitution": constitution_snapshot,
         }
 
-    def _admit_from_receipt(self, receipt: CapabilityReceipt, action_class: str, scope: str, classification: str, recovery: RecoveryProgram) -> dict[str, Any]:
+    def _admit_from_receipt(self, receipt: CapabilityReceipt, action_class: str, scope: str, classification: str, recovery: RecoveryProgram, generalization=None) -> dict[str, Any]:
         cap_id = f"{action_class}:{scope}"
         now = datetime.now(timezone.utc).isoformat()
         payload = receipt.to_dict()
         payload["recovery_program"] = {"kind": recovery.kind, "params": dict(recovery.params or {})}
         payload["evidence_classification"] = classification
+        if generalization is not None:
+            payload["generalization"] = {
+                "family": generalization.environment_family,
+                "fixtures_tested": generalization.fixtures_tested,
+                "fixtures_passed": generalization.fixtures_passed,
+                "holdout_fixtures": generalization.holdout_fixtures,
+                "holdout_passed": generalization.holdout_passed,
+                "recovery_success_rate": generalization.recovery_success_rate,
+                "classification": generalization.evidence_class.value,
+                "upper_bound_exposure": generalization.upper_bound_exposure,
+            }
         self.store.save_receipt(receipt.bound_digest[:32], action_class, scope, receipt.status, classification, receipt.verified_at, receipt.expires_at, payload)
         row = CapabilityRow(cap_id, action_class, scope, CapabilityState.ADMITTED.value, receipt.bound_digest[:32], now, now)
         # walk legal transitions from FORBIDDEN: ADMITTED is terminal legal target via explicit set
         self.store.upsert_capability(row)
         self._audit(None, None, cap_id, None, None, "CAPABILITY_ADMITTED", classification, {"receipt_id": receipt.bound_digest[:32]})
-        return {"receipt_id": receipt.bound_digest[:32], "status": receipt.status, "admitted": True, "capability_id": cap_id}
+        return {
+            "receipt_id": receipt.bound_digest[:32],
+            "status": receipt.status,
+            "admitted": True,
+            "capability_id": cap_id,
+            "classification": classification,
+        }
 
     def revoke(self, capability_id: str, reason: str = "manual") -> dict[str, Any]:
         with self.lock:
@@ -244,8 +302,8 @@ class CrestRuntime:
         if not scope_matches(receipt.target_scope, rel_target):
             return None, "RECEIPT_SCOPE_MISMATCH"
         classification = payload.get("evidence_classification", EVIDENCE_VERIFIED_FIXTURE)
-        if classification == EVIDENCE_VERIFIED_FIXTURE and not self.config.allow_fixture_evidence:
-            return None, "FIXTURE_EVIDENCE_NOT_ALLOWED"
+        if not _evidence_allows(classification, allowed_class=self.config.min_evidence_class, allow_fixture=self.config.allow_fixture_evidence):
+            return None, "EVIDENCE_CLASS_INSUFFICIENT"
         if receipt.status != "VERIFIED":
             return None, f"RECEIPT_STATUS:{receipt.status}"
         return receipt, "ok"
@@ -341,6 +399,21 @@ class CrestRuntime:
 
             workspace = Workspace(Path(self.config.workspace_root))
             pre = workspace.snapshot()
+
+            payload_for_drift = self.store.get_receipt_payload(decision.receipt_id) if decision.receipt_id else None
+            gen = (payload_for_drift or {}).get("generalization")
+            if gen:
+                declared = tuple(f for f in str(gen.get("family", "")).split(",") if f)
+                report = detect_drift(workspace, declared, target=rel_target)
+                if report.detected and len(report.reasons) >= len(declared):
+                    # every evidence family is violated -> drift
+                    now_iso = datetime.now(timezone.utc).isoformat()
+                    self._revoke_row(decision.capability_id, f"DRIFT_DETECTED:{report.reasons[0]}", now_iso)
+                    self._audit(request_id, agent_id, decision.capability_id, tool, operation, "DRIFT_DETECTED", report.reasons[0], {})
+                    return ToolResult(ok=False, request_id=request_id, agent_id=agent_id, tool=tool, operation=operation,
+                                      reason=f"DRIFT_DETECTED:{report.reasons[0]}", target=rel_target,
+                                      exposure_before=exposure_before, exposure_after=self.store.total_exposure(),
+                                      duration_ms=(time.perf_counter() - start) * 1000)
             try:
                 if self.config.dry_run:
                     output = {"dry_run": True}

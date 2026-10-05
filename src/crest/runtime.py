@@ -16,7 +16,7 @@ from .constitution import Constitution
 from .ledger import ExposureLedger
 from .receipts import CapabilityReceipt
 from .recovery import RecoveryContext, RecoveryProgram, get_handler
-from .verifier import TestConfig, Verifier
+from .verifier import VerificationConfig, Verifier
 from .workspace import Workspace
 
 
@@ -66,7 +66,7 @@ class Runtime:
         target: str,
         params: dict[str, Any],
         recovery: RecoveryProgram,
-        test_config: TestConfig,
+        test_config: VerificationConfig,
         now: datetime | None = None,
     ) -> AdmissionDecision:
         now = now or self._now_fn()

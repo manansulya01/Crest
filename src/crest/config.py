@@ -27,6 +27,7 @@ class CrestConfig:
     receipt_ttl_seconds: float = 3600.0
     require_receipt: bool = True
     allow_fixture_evidence: bool = True
+    min_evidence_class: str = "VERIFIED_FIXTURE"
     shell_allowlist: tuple[str, ...] = tuple(DEFAULT_SHELL_ALLOWLIST)
     state_dir: Path | None = None
     audit_path: Path | None = None
@@ -40,9 +41,28 @@ class CrestConfig:
     def resolved_audit_path(self) -> Path:
         return self.audit_path or (self.resolved_state_dir / "audit.jsonl")
 
+    def validate(self) -> None:
+        problems = []
+        if self.e_max <= 0:
+            problems.append("e_max must be positive")
+        if self.exposure_window_seconds <= 0:
+            problems.append("exposure_window_seconds must be positive")
+        if not 0 < self.min_recovery_success_rate <= 1:
+            problems.append("min_recovery_success_rate in (0,1]")
+        if self.max_recovery_p99_ms <= 0:
+            problems.append("max_recovery_p99_ms must be positive")
+        if self.receipt_ttl_seconds <= 0:
+            problems.append("receipt_ttl_seconds must be positive")
+        if self.min_evidence_class not in ("UNVERIFIED", "VERIFIED_FIXTURE", "VERIFIED_FAMILY", "VERIFIED_GENERAL"):
+            problems.append(f"invalid min_evidence_class {self.min_evidence_class}")
+        if problems:
+            raise ValueError("invalid CrestConfig: " + "; ".join(problems))
+
 
 def load(path: Path | str) -> CrestConfig:
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    if not isinstance(data, dict):
+        raise ValueError("config must be a YAML mapping")
     root = Path(data.get("workspace", {}).get("root", "."))
     exposure = data.get("exposure", {})
     admission = data.get("admission", {})
@@ -51,7 +71,7 @@ def load(path: Path | str) -> CrestConfig:
     shell_raw = data.get("shell", {}).get("allowlist")
     state_raw = data.get("state", {}).get("dir")
     audit_raw = data.get("audit", {}).get("path")
-    return CrestConfig(
+    cfg = CrestConfig(
         workspace_root=root,
         e_max=float(exposure.get("max_window_exposure", 1.0)),
         exposure_window_seconds=float(exposure.get("window_seconds", 3600.0)),
@@ -61,11 +81,14 @@ def load(path: Path | str) -> CrestConfig:
         receipt_ttl_seconds=float(admission.get("max_receipt_age_seconds", 3600.0)),
         require_receipt=bool(admission.get("require_receipt", True)),
         allow_fixture_evidence=bool(admission.get("allow_fixture_evidence", True)),
+        min_evidence_class=str(admission.get("min_evidence_class", "VERIFIED_FIXTURE")),
         shell_allowlist=tuple(shell_raw) if shell_raw else tuple(DEFAULT_SHELL_ALLOWLIST),
         state_dir=Path(state_raw) if state_raw else None,
         audit_path=Path(audit_raw) if audit_raw else None,
         dry_run=bool(runtime.get("dry_run", False)),
     )
+    cfg.validate()
+    return cfg
 
 
 def default_yaml(root: Path) -> str:
@@ -81,6 +104,7 @@ admission:
   # tested fixture, not general recoverability. Set false to demand
   # VERIFIED_GENERAL receipts once such verification exists.
   allow_fixture_evidence: true
+  min_evidence_class: VERIFIED_FIXTURE
   max_receipt_age_seconds: 3600
   min_recovery_success_rate: 0.95
   max_recovery_p99_ms: 10000

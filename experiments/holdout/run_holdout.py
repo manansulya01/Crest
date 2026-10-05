@@ -21,7 +21,7 @@ from crest.constitution import Constitution
 from crest.ledger import ExposureLedger
 from crest.recovery import RecoveryContext, RecoveryProgram, get_handler
 from crest.runtime import RecoveryProbeFailure, Runtime, SecurityError
-from crest.verifier import TestConfig
+from crest.verifier import VerificationConfig
 from crest.workspace import Workspace
 
 from experiments.holdout.env import TARGET, TRANSFORMATIONS, build_env_b
@@ -116,7 +116,7 @@ def _run_crest_arm(arm: str, program: RecoveryProgram) -> HoldoutRecord:
         decision = rt.evaluate_and_admit(
             action_class="delete_file", target_scope="*", target=TARGET, params={},
             recovery=program,
-            test_config=TestConfig(trials=5, repeat_trials=1, seed=7), now=NOW,
+            test_config=VerificationConfig(trials=5, repeat_trials=1, seed=7), now=NOW,
         )
         verification_success = bool(decision.allow)
         admitted = verification_success

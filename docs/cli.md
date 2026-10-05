@@ -9,7 +9,12 @@ crest receipts list|show <id>
 crest audit [--limit N]
 crest policy check --tool T --operation O [--arg k=v]...
 crest verify --action A --recovery KIND [--scope S] [--target T] [--trials N] [--seed N]
-crest exec <tool> <operation> [--arg k=v]...
+crest exec <tool> <operation> [--arg k=v]... [--dry-run]
+crest verify-generalized --action A --recovery KIND [--families a,b] [--scope S]
+crest evidence list
+crest doctor
+crest benchmark [admission|security|generalization|drift|all]
+crest report
 ```
 
 Exit codes: 0 ok; 3 denied/security failure; 4 not found; argparse errors: 2.

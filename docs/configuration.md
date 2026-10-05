@@ -12,6 +12,8 @@ admission:
   require_receipt: true
   require_verified_recovery: true
   allow_fixture_evidence: true
+  # minimum acceptable evidence class for a receipt to authorize execution
+  min_evidence_class: "VERIFIED_FIXTURE"
   max_receipt_age_seconds: 3600
   min_recovery_success_rate: 0.95
   max_recovery_p99_ms: 10000

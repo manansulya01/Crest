@@ -26,7 +26,7 @@ from .workspace import Workspace
 
 
 @dataclass(frozen=True)
-class TestConfig:
+class VerificationConfig:
     trials: int = 20
     repeat_trials: int = 3
     required_success_rate: float = 0.95
@@ -64,7 +64,7 @@ class Verifier:
         target: str,
         params: dict[str, Any],
         recovery: RecoveryProgram,
-        test_config: TestConfig,
+        test_config: VerificationConfig,
         now: datetime,
         ttl_seconds: float,
     ) -> CapabilityReceipt:

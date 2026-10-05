@@ -8,7 +8,7 @@ from crest.ledger import ExposureLedger
 from crest.learner import HeuristicProposer
 from crest.recovery import RecoveryProgram
 from crest.runtime import RecoveryProbeFailure, Runtime, SecurityError
-from crest.verifier import TestConfig
+from crest.verifier import VerificationConfig
 from crest.workspace import Workspace
 
 NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -37,7 +37,7 @@ def main() -> None:
         print("2. independent verifier tests it:")
         decision = rt.evaluate_and_admit(
             action_class="delete_file", target_scope="*", target="a.txt", params={},
-            recovery=recovery, test_config=TestConfig(trials=8, repeat_trials=2, seed=7), now=NOW,
+            recovery=recovery, test_config=VerificationConfig(trials=8, repeat_trials=2, seed=7), now=NOW,
         )
         receipt = rt.receipts.get("delete_file")
         if receipt:

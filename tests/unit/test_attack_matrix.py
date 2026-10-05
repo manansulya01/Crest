@@ -30,7 +30,7 @@ def test_crest_denies_partial_directory_recovery():
     from crest.ledger import ExposureLedger
     from crest.recovery import RecoveryProgram
     from crest.runtime import Runtime
-    from crest.verifier import TestConfig
+    from crest.verifier import VerificationConfig
 
     NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
     rt = Runtime(
@@ -44,7 +44,7 @@ def test_crest_denies_partial_directory_recovery():
     decision = rt.evaluate_and_admit(
         action_class="delete_directory", target_scope="*", target="assets", params={},
         recovery=RecoveryProgram(kind="restore_first_only"),
-        test_config=TestConfig(trials=5, repeat_trials=1, seed=2), now=NOW,
+        test_config=VerificationConfig(trials=5, repeat_trials=1, seed=2), now=NOW,
     )
     assert not decision.allow
 

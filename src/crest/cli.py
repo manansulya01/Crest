@@ -76,6 +76,25 @@ def main(argv: list[str] | None = None) -> int:
     ex.add_argument("tool")
     ex.add_argument("operation")
     ex.add_argument("--arg", action="append", default=[])
+    ex.add_argument("--dry-run", action="store_true")
+
+    ev = sub.add_parser("evidence")
+    ev_sub = ev.add_subparsers(dest="evidence_command")
+    ev_sub.add_parser("list")
+
+    sub.add_parser("doctor")
+
+    bench = sub.add_parser("benchmark")
+    bench.add_argument("which", nargs="?", default="all", choices=["all", "admission", "security", "generalization", "drift"])
+
+    sub.add_parser("report")
+
+    ver = sub.add_parser("verify-generalized", help="run cross-fixture holdout verification and admit if evidence class suffices")
+    ver.add_argument("--action", required=True)
+    ver.add_argument("--recovery", required=True)
+    ver.add_argument("--scope", default="*")
+    ver.add_argument("--families", default="filesystem.single_file", help="comma-separated")
+    ver.add_argument("--seed", type=int, default=0)
 
     args = p.parse_args(argv)
     if args.command is None:
@@ -151,9 +170,55 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if out.get("admitted") else 3
         if args.command == "exec":
             args_map = _parse_kvs(args.arg)
+            if args.dry_run:
+                d = rt.check(agent_id="cli", tool=args.tool, operation=args.operation, arguments=args_map)
+                print(json.dumps({"dry_run": True, **d.to_audit()}, indent=2))
+                return 0 if d.allowed else 3
             result = rt.execute(agent_id="cli", tool=args.tool, operation=args.operation, arguments=args_map)
             print(json.dumps({"ok": result.ok, "reason": result.reason, "target": result.target, "exposure_after": result.exposure_after, "output": result.output}, indent=2))
             return 0 if result.ok else 3
+        if args.command == "evidence" and args.evidence_command in (None, "list"):
+            for r in rt.list_receipts():
+                payload = rt.get_receipt(r["receipt_id"]) or {}
+                gen = payload.get("generalization")
+                suffix = f"  gen={gen.get('classification') if gen else 'fixture-only'}"
+                print(f"{r['receipt_id']}  {r['action_class']}  status={r['status']}{suffix}")
+            return 0
+        if args.command == "doctor":
+            problems = []
+            ok = True
+            try:
+                rt.config.validate()
+            except Exception as exc:
+                ok = False; problems.append(f"config: {exc}")
+            try:
+                st = rt.status(); assert st["e_max"] > 0
+            except Exception as exc:
+                ok = False; problems.append(f"status: {exc}")
+            print(json.dumps({"healthy": ok, "problems": problems}, indent=2))
+            return 0 if ok else 1
+        if args.command == "benchmark":
+            from .benchmarks import run as run_bench
+
+            print(json.dumps(run_bench(args.which), indent=2))
+            return 0
+        if args.command == "report":
+            payload = rt.status()
+            receipts = rt.list_receipts()
+            print(json.dumps({
+                "status": payload,
+                "receipts": receipts,
+                "capabilities": rt.list_capabilities(),
+                "audit_events": len(rt.audit(500)),
+            }, indent=2))
+            return 0
+        if args.command == "verify-generalized":
+            out = rt.verify_generalized(
+                action_class=args.action, scope=args.scope, recovery=RecoveryProgram(kind=args.recovery),
+                family_ids=tuple(s.strip() for s in args.families.split(",") if s.strip()), seed=args.seed,
+            )
+            print(json.dumps(out, indent=2))
+            return 0 if out.get("admitted") else 3
         p.print_help()
         return 0
     finally:

@@ -12,6 +12,10 @@ Not proven:
 
 - That receipts predict recoverability under unseen environments (M2
   holdout falsification demonstrated the contrary risk on our attacks).
-- That a budget bounds true-world harm; Crest bounds *certified* exposure,
-  an accounting input, not an observed-harm guarantee.
+- That certified exposure bounds true-world harm; Crest bounds *certified*
+  exposure, an accounting input, not an observed-harm guarantee.
 - That fixture verification scales to real agent environments.
+
+V0.3 changed fixture-level receipts into a graded evidence hierarchy, but the
+hierarchy still inherits from deterministic seed-based families — stronger
+than V0.2, weaker than broad production, and honest about the gap.

@@ -71,7 +71,10 @@ def test_revoked_capability_cannot_execute(workspace):
     rt.close()
 
 
-def test_expired_receipt_cannot_authorize(workspace):
+def test_expired_receipt_cannot_authorize(workspace, monkeypatch):
+    import crest.config as cc
+
+    monkeypatch.setattr(cc.CrestConfig, "validate", lambda self: None)
     rt = make_runtime(workspace, receipt_ttl_seconds=-1)
     out = admit(rt)
     assert out["admitted"] is True

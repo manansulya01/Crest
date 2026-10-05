@@ -10,7 +10,7 @@ from crest.constitution import Constitution
 from crest.ledger import ExposureLedger
 from crest.recovery import RecoveryProgram
 from crest.runtime import RecoveryProbeFailure, Runtime, SecurityError
-from crest.verifier import TestConfig
+from crest.verifier import VerificationConfig
 from crest.workspace import Workspace
 
 NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -34,7 +34,7 @@ def admit(rt, recovery, seed_content=None):
     return rt.evaluate_and_admit(
         action_class="delete_file", target_scope="*", target="a.txt", params={},
         recovery=recovery,
-        test_config=TestConfig(trials=5, repeat_trials=1, seed=3, seed_target_content=seed_content),
+        test_config=VerificationConfig(trials=5, repeat_trials=1, seed=3, seed_target_content=seed_content),
         now=NOW,
     )
 
@@ -96,7 +96,7 @@ def test_out_of_scope_target_denied_even_after_admit():
     d = rt.evaluate_and_admit(
         action_class="delete_file", target_scope="a.txt", target="a.txt", params={},
         recovery=RecoveryProgram(kind="restore_from_snapshot"),
-        test_config=TestConfig(trials=4, repeat_trials=1, seed=1), now=NOW,
+        test_config=VerificationConfig(trials=4, repeat_trials=1, seed=1), now=NOW,
     )
     assert d.allow
     ws = Workspace.temporary()

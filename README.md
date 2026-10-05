@@ -42,6 +42,20 @@ r = gw.execute(ToolRequest(agent_id="agent-1", tool="filesystem", operation="mod
 # r.ok / r.reason / r.exposure_after / audit persisted
 ```
 
+## V0.3 generalized evidence
+
+Receipts are graded into evidence classes: `VERIFIED_FIXTURE`,
+`VERIFIED_FAMILY`, `VERIFIED_GENERAL`. A `GeneralizationVerifier` runs
+recovery across fixture seeds and a hidden holdout split; classification only
+strengthens when holdout coverage is sufficient. Admission rejects fixture
+receipts whenever `min_evidence_class` is stricter than the receipt's class.
+Drift detection compares evidence-family invariants against the real
+workspace. See `docs/research-v0.3.md` and
+`python examples/generalized_evidence_demo.py`.
+
+New CLI surface: `crest verify-generalized`, `crest evidence list`,
+`crest doctor`, `crest benchmark`, `crest report`, `crest exec --dry-run`.
+
 ## Research lineage and honest boundary
 
 Milestones 1–2 (in this repo or merged from `experiment/milestone2-falsification`)

@@ -11,7 +11,7 @@ from crest.constitution import Constitution
 from crest.ledger import ExposureLedger
 from crest.recovery import RecoveryProgram
 from crest.runtime import RecoveryProbeFailure, Runtime
-from crest.verifier import TestConfig
+from crest.verifier import VerificationConfig
 from crest.workspace import Workspace
 
 from experiments.holdout.env import TARGET, build_env_a, build_env_b
@@ -47,7 +47,7 @@ def test_exact_state_overfit_passes_A_fails_B():
     program = RecoveryProgram(kind="exact_state_gate_restore", params={"prefix": "seed-"})
     decision = rt.evaluate_and_admit(
         action_class="delete_file", target_scope="*", target=TARGET, params={},
-        recovery=program, test_config=TestConfig(trials=4, repeat_trials=1, seed=7), now=NOW,
+        recovery=program, test_config=VerificationConfig(trials=4, repeat_trials=1, seed=7), now=NOW,
     )
     assert decision.allow  # passes the A-fixture verifier trials
 
@@ -66,7 +66,7 @@ def test_perfect_recovery_passes_A_and_B():
     program = RecoveryProgram(kind="restore_from_snapshot")
     decision = rt.evaluate_and_admit(
         action_class="delete_file", target_scope="*", target=TARGET, params={},
-        recovery=program, test_config=TestConfig(trials=4, repeat_trials=1, seed=7), now=NOW,
+        recovery=program, test_config=VerificationConfig(trials=4, repeat_trials=1, seed=7), now=NOW,
     )
     assert decision.allow
     ws = Workspace.temporary()
@@ -83,7 +83,7 @@ def test_existing_overfit_gate_reproduces_under_holdout():
     program = RecoveryProgram(kind="overfit_distractor_gate")
     decision = rt.evaluate_and_admit(
         action_class="delete_file", target_scope="*", target=TARGET, params={},
-        recovery=program, test_config=TestConfig(trials=4, repeat_trials=1, seed=7), now=NOW,
+        recovery=program, test_config=VerificationConfig(trials=4, repeat_trials=1, seed=7), now=NOW,
     )
     assert decision.allow
     ws = Workspace.temporary()

@@ -16,7 +16,7 @@ from crest.constitution import Constitution
 from crest.ledger import ExposureLedger
 from crest.recovery import RecoveryContext, get_handler
 from crest.runtime import RecoveryProbeFailure, Runtime, SecurityError
-from crest.verifier import TestConfig
+from crest.verifier import VerificationConfig
 from crest.workspace import Workspace
 
 from experiments.attacks.adversary import adversary_for
@@ -185,7 +185,7 @@ def run_crest(attack: str, latency_bound_ms: float = 10000.0) -> SessionResult:
             try:
                 decision = rt.evaluate_and_admit(
                     action_class=action_class, target_scope="*", target=target, params=params,
-                    recovery=recovery, test_config=TestConfig(trials=6, repeat_trials=1, seed=7), now=NOW,
+                    recovery=recovery, test_config=VerificationConfig(trials=6, repeat_trials=1, seed=7), now=NOW,
                 )
             except Exception as exc:
                 decision = None
