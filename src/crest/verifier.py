@@ -31,6 +31,7 @@ class TestConfig:
     repeat_trials: int = 3
     required_success_rate: float = 0.95
     seed: int = 0
+    seed_target_content: str | None = None
 
     def digest(self) -> str:
         return digest_of(
@@ -39,6 +40,7 @@ class TestConfig:
                 "repeat_trials": self.repeat_trials,
                 "required_success_rate": self.required_success_rate,
                 "seed": self.seed,
+                "seed_target_content": self.seed_target_content,
             }
         )
 
@@ -81,10 +83,13 @@ class Verifier:
             repeat = i >= test_config.trials
             ws = Workspace.temporary()
             try:
-                target_content = f"seed-{i}-{rng.randrange(10**9)}".encode()
+                target_content = (test_config.seed_target_content or f"seed-{i}-{rng.randrange(10**9)}").encode()
                 if action_class not in ("create_file", "create_record"):
                     if action_class in ("create_record", "modify_record", "delete_record"):
                         ws.write(target, b'{"id": 1}')
+                    elif action_class == "delete_directory":
+                        ws.write(f"{target.rstrip('/')}/f1.txt", target_content)
+                        ws.write(f"{target.rstrip('/')}/f2.txt", b"second")
                     else:
                         ws.write(target, target_content)
                 for j in range(3):
