@@ -56,6 +56,15 @@ def delete_record(ws: Workspace, target: str, params: dict[str, Any]) -> None:
     delete_file(ws, target, params)
 
 
+def delete_directory(ws: Workspace, target: str, params: dict[str, Any]) -> None:
+    import shutil
+
+    p = ws.resolve(target)
+    if not p.is_dir():
+        raise NotADirectoryError(target)
+    shutil.rmtree(p)
+
+
 ACTIONS: dict[str, ActionFn] = {
     "create_file": create_file,
     "modify_file": modify_file,
@@ -64,6 +73,7 @@ ACTIONS: dict[str, ActionFn] = {
     "create_record": create_record,
     "modify_record": modify_record,
     "delete_record": delete_record,
+    "delete_directory": delete_directory,
 }
 
 ALL_ACTION_CLASSES = frozenset(ACTIONS)

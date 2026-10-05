@@ -45,11 +45,15 @@ class Capability:
         self.scope = scope
         self.state = CapabilityState.FORBIDDEN
         self.receipt_digest: str | None = None
+        self.state_changed_at = None
 
     def transition(self, to: CapabilityState) -> None:
         if to not in _TRANSITIONS[self.state]:
             raise IllegalTransition(f"{self.state} -> {to} is not allowed")
+        from datetime import datetime, timezone
+
         self.state = to
+        self.state_changed_at = datetime.now(timezone.utc)
 
     @property
     def executable(self) -> bool:

@@ -35,19 +35,24 @@ python -m pytest
 
 `delete_file` + heuristic proposer + sandbox workspace + independent verifier (normal and repeated execution) + content-addressed receipt + deterministic admission + execution-time re-probe with asymmetric revocation.
 
-## What is NOT yet implemented (Milestone 2+)
+## Milestone 2 (implemented)
 
-Fault injection in the verifier (recovery command failure, partial execution, stale snapshots), distribution-shift arms, adversarial learner experiments, AAC metric collection, baseline/self-grading arms, statistical analysis. See `docs/`.
+Fault injection (`src/crest/faults.py`), adversarial learner (`experiments/attacks/`), distribution-shift cases, uncontrolled/self-grading baselines (`experiments/baselines/session.py`), metrics, matrix runner (`experiments/runners/run_experiment.py`), invariants (`tests/security/test_milestone2_invariants.py`). See `docs/milestone2_findings.md`.
+
+## What is NOT yet implemented (Milestone 3+)
+
+Remaining: statistical multi-seed analysis, larger recovery-discovery models, composition attacks.
 
 ## Layout
 
 ```
 src/crest/     actions.py workspace.py recovery.py learner.py verifier.py
                receipts.py constitution.py admission.py ledger.py
-               capabilities.py runtime.py hashing.py
+               capabilities.py runtime.py hashing.py metrics.py faults.py
 tests/unit/    tests/security/ (invariant tests) tests/integration/
-experiments/   baseline/ self_grading/ crest/ adversarial/ distribution_shift/
+experiments/   attacks/ baselines/ runners/ results/
 examples/      milestone1_demo.py
+Run the falsification matrix: python -m experiments.runners.run_experiment --matrix --latency-bound-ms 50
 ```
 
 ## Non-goals (V0)
