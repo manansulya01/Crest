@@ -89,6 +89,9 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("report")
 
+    exp = sub.add_parser("experiment", help="run a research experiment")
+    exp.add_argument("name", choices=["cross-distribution", "ablations", "exposure-sweep", "confidence", "drift", "tables", "conclusion", "holdout"])
+
     ver = sub.add_parser("verify-generalized", help="run cross-fixture holdout verification and admit if evidence class suffices")
     ver.add_argument("--action", required=True)
     ver.add_argument("--recovery", required=True)
@@ -109,6 +112,28 @@ def main(argv: list[str] | None = None) -> int:
             cfg_path.write_text(default_yaml(root), encoding="utf-8")
         (root / ".crest").mkdir(exist_ok=True)
         print(f"initialized crest config at {cfg_path} (root={root})")
+        return 0
+
+    if args.command == "experiment" and args.name in ("conclusion", "tables"):
+        # These only read artifacts; no workspace config required.
+        import importlib
+
+        module_map = {
+            "tables": ("experiments.generalization.tables", "write_all"),
+            "conclusion": ("experiments.generalization.conclusion", "evaluate"),
+        }
+        mod_name, fn_name = module_map[args.name]
+        mod = importlib.import_module(mod_name)
+        if args.name == "tables":
+            print(f"wrote {getattr(mod, fn_name)()}")
+            return 0
+        out = getattr(mod, fn_name)()
+        print(json.dumps(out, indent=2))
+        from pathlib import Path as _P
+
+        results_dir = _P(__file__).resolve().parents[2] / "experiments" / "results"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        (results_dir / "conclusion.json").write_text(json.dumps(out, indent=2), encoding="utf-8")
         return 0
 
     rt = _runtime(args)
@@ -185,18 +210,9 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"{r['receipt_id']}  {r['action_class']}  status={r['status']}{suffix}")
             return 0
         if args.command == "doctor":
-            problems = []
-            ok = True
-            try:
-                rt.config.validate()
-            except Exception as exc:
-                ok = False; problems.append(f"config: {exc}")
-            try:
-                st = rt.status(); assert st["e_max"] > 0
-            except Exception as exc:
-                ok = False; problems.append(f"status: {exc}")
-            print(json.dumps({"healthy": ok, "problems": problems}, indent=2))
-            return 0 if ok else 1
+            from .doctor import doctor as run_doctor
+
+            return run_doctor(rt)
         if args.command == "benchmark":
             from .benchmarks import run as run_bench
 
@@ -219,6 +235,29 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(json.dumps(out, indent=2))
             return 0 if out.get("admitted") else 3
+        if args.command == "experiment":
+            import importlib
+
+            module_map = {
+                "cross-distribution": ("experiments.generalization.cross_distribution", "run_grid"),
+                "ablations": ("experiments.generalization.ablations", "run_all"),
+                "exposure-sweep": ("experiments.generalization.exposure_sweep", "run_all"),
+                "confidence": ("experiments.generalization.confidence_sensitivity", "run_all"),
+                "drift": ("experiments.generalization.drift_experiment", "run"),
+                "tables": ("experiments.generalization.tables", "write_all"),
+                "conclusion": ("experiments.generalization.conclusion", "evaluate"),
+                "holdout": ("experiments.holdout.run_holdout", "run"),
+            }
+            mod_name, fn_name = module_map[args.name]
+            mod = importlib.import_module(mod_name)
+            if args.name == "tables":
+                print(f"wrote {getattr(mod, fn_name)()}")
+                return 0
+            if args.name == "conclusion":
+                print(json.dumps(getattr(mod, fn_name)(), indent=2))
+                return 0
+            getattr(mod, fn_name)()
+            return 0
         p.print_help()
         return 0
     finally:

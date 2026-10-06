@@ -187,7 +187,7 @@ def test_tampered_receipt_rejected(workspace):
     rid = out["receipt_id"]
     payload = rt.store.get_receipt_payload(rid)
     payload["action_class"] = "modify_file"
-    rt.store.save_receipt(rid, "delete_file", "*", "VERIFIED", "VERIFIED_FIXTURE", payload["verified_at"], payload["expires_at"], payload)
+    rt.store.save_receipt(rid, "delete_file", "*", "VERIFIED", "VERIFIED_FIXTURE", payload["issued_at"], payload["expires_at"], payload)
     res = rt.execute(agent_id="a", tool="filesystem", operation="delete_file", arguments={"path": "data/a.txt"})
     assert not res.ok and res.reason == "RECEIPT_TAMPERED"
     rt.close()

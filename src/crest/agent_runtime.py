@@ -30,6 +30,7 @@ from .generalization import GeneralizationVerifier
 from .verifier import VerificationConfig, Verifier
 from .workspace import Workspace
 from .drift import detect as detect_drift
+from .redaction import redact
 
 EVIDENCE_VERIFIED_FIXTURE = "VERIFIED_FIXTURE"
 EVIDENCE_VERIFIED_GENERAL = "VERIFIED_GENERAL"
@@ -153,6 +154,10 @@ class CrestRuntime:
         recovery: RecoveryProgram,
         family_ids: tuple[str, ...] = ("filesystem.single_file",),
         seed: int = 0,
+        verification_cases: int = 20,
+        holdout_cases: int = 20,
+        shift_cases: int = 10,
+        pinned_target: str | None = None,
     ) -> dict[str, Any]:
         """Cross-fixture + holdout verification -> evidence-class admission.
 
@@ -162,17 +167,34 @@ class CrestRuntime:
         """
         from .evidence import EvidenceClass
 
+        limits = self.config.limits
+        if verification_cases > limits.max_verification_cases or holdout_cases > limits.max_holdout_cases or shift_cases > limits.max_shift_cases:
+            return {"admitted": False, "reason": "VERIFICATION_LIMITS_EXCEEDED", "evidence_class": EvidenceClass.UNVERIFIED.value}
         with self.lock:
-            gev = GeneralizationVerifier().verify(action_class=action_class, recovery=recovery, family_ids=family_ids, seed_base=seed)
+            gv = GeneralizationVerifier(
+                policy=self.config.evidence_policy,
+                verification_cases=verification_cases,
+                holdout_cases=holdout_cases,
+                shift_cases=shift_cases,
+                verification_seed_base=1000 + seed * 100,
+                holdout_seed_base=90000 + seed * 100,
+                shift_seed_base=50000 + seed * 100,
+            )
+            started = time.perf_counter()
+            gev = gv.verify(action_class=action_class, recovery=recovery, family_ids=family_ids)
+            elapsed = time.perf_counter() - started
+            measurement = gv.measurement()
+            if elapsed > limits.max_verification_seconds:
+                return {"admitted": False, "reason": "VERIFICATION_TIMEOUT", "evidence_class": gev.evidence_class.value}
             if gev.evidence_class in (EvidenceClass.UNVERIFIED, EvidenceClass.PROPOSED, EvidenceClass.EXPIRED, EvidenceClass.REVOKED):
                 return {"admitted": False, "reason": f"insufficient evidence class: {gev.evidence_class.value}", "evidence_class": gev.evidence_class.value,
-                        "fixtures_tested": gev.fixtures_tested, "holdout_fixtures": gev.holdout_fixtures}
+                        "measurement": measurement}
             fixture_decision = self._evaluate_research(action_class=action_class, target_scope=scope, target="a.txt", recovery=recovery, trials=6, seed=seed)
             receipt = fixture_decision["receipt"]
             if not fixture_decision["allowed"]:
                 return {"receipt_id": receipt.bound_digest[:16], "status": receipt.status, "admitted": False,
                         "reason": fixture_decision["reason"], "evidence_class": gev.evidence_class.value}
-            return self._admit_from_receipt(receipt, action_class, scope, gev.evidence_class.value, recovery, generalization=gev)
+            return self._admit_from_receipt(receipt, action_class, scope, gev.evidence_class.value, recovery, generalization=gev, measurement=measurement, elapsed=elapsed, pinned_target=pinned_target)
 
     def _evaluate_research(self, *, action_class, target_scope, target, recovery, trials, seed) -> dict[str, Any]:
         now = datetime.now(timezone.utc)
@@ -194,12 +216,21 @@ class CrestRuntime:
             "constitution": constitution_snapshot,
         }
 
-    def _admit_from_receipt(self, receipt: CapabilityReceipt, action_class: str, scope: str, classification: str, recovery: RecoveryProgram, generalization=None) -> dict[str, Any]:
+    def _admit_from_receipt(self, receipt: CapabilityReceipt, action_class: str, scope: str, classification: str, recovery: RecoveryProgram, generalization=None, measurement=None, elapsed: float | None = None, pinned_target: str | None = None) -> dict[str, Any]:
         cap_id = f"{action_class}:{scope}"
         now = datetime.now(timezone.utc).isoformat()
         payload = receipt.to_dict()
         payload["recovery_program"] = {"kind": recovery.kind, "params": dict(recovery.params or {})}
         payload["evidence_classification"] = classification
+        payload["policy_version"] = self.config.policy_version
+        if measurement is not None:
+            payload["verification_measurement"] = measurement
+        if elapsed is not None:
+            payload["verification_seconds"] = round(elapsed, 4)
+        if pinned_target:
+            # target pinning binds evidence to one concrete path so that
+            # rename/move drift becomes detectable at execution time
+            payload["pinned_target"] = pinned_target
         if generalization is not None:
             payload["generalization"] = {
                 "family": generalization.environment_family,
@@ -211,7 +242,7 @@ class CrestRuntime:
                 "classification": generalization.evidence_class.value,
                 "upper_bound_exposure": generalization.upper_bound_exposure,
             }
-        self.store.save_receipt(receipt.bound_digest[:32], action_class, scope, receipt.status, classification, receipt.verified_at, receipt.expires_at, payload)
+        self.store.save_receipt(receipt.bound_digest[:32], action_class, scope, receipt.status, classification, receipt.issued_at, receipt.expires_at, payload)
         row = CapabilityRow(cap_id, action_class, scope, CapabilityState.ADMITTED.value, receipt.bound_digest[:32], now, now)
         # walk legal transitions from FORBIDDEN: ADMITTED is terminal legal target via explicit set
         self.store.upsert_capability(row)
@@ -232,13 +263,8 @@ class CrestRuntime:
             if row.state not in (CapabilityState.ADMITTED.value, CapabilityState.ACTIVE.value):
                 return {"revoked": False, "state": row.state}
             now = datetime.now(timezone.utc).isoformat()
-            row.state = CapabilityState.REVOKED.value
-            row.revoked_at = now
-            row.revocation_reason = reason
-            row.updated_at = now
-            self.store.upsert_capability(row)
-            self._audit(None, None, capability_id, None, None, "CAPABILITY_REVOKED", reason, {})
-            return {"revoked": True, "state": row.state}
+            self._revoke_row(capability_id, reason, now)
+            return {"revoked": True, "state": CapabilityState.REVOKED.value}
 
     def get_capability(self, capability_id: str) -> dict[str, Any] | None:
         row = self.store.get_capability(capability_id)
@@ -286,13 +312,24 @@ class CrestRuntime:
     def _validate_cached_receipt(self, row: CapabilityRow, action_class: str, rel_target: str, now: datetime) -> tuple[CapabilityReceipt | None, str]:
         if not row.receipt_id:
             return None, "MISSING_RECEIPT"
-        payload = self.store.get_receipt_payload(row.receipt_id)
+        payload = self.store.get_receipt_payload(row.receipt_id) if row.receipt_id else None
         if payload is None:
             return None, "RECEIPT_NOT_FOUND"
+        if payload.get("revoked") or self.store.is_receipt_revoked(row.receipt_id):
+            # replay protection: revoked evidence can never authorize again
+            return None, "RECEIPT_REVOKED"
+        pinned = payload.get("pinned_target")
+        if pinned and pinned != rel_target:
+            # target pinning: evidence for one concrete path does not
+            # authorize a different path (rename/move drift)
+            return None, "TARGET_IDENTITY_MISMATCH"
         try:
             receipt = CapabilityReceipt.from_dict(payload)
         except Exception:
             return None, "RECEIPT_MALFORMED"
+        if receipt.schema_version != CapabilityReceipt.create.__defaults__ and receipt.schema_version < 2:
+            # unknown/legacy schema versions are never reinterpreted
+            return None, "RECEIPT_SCHEMA_UNSUPPORTED"
         if not receipt.is_hash_valid():
             return None, "RECEIPT_TAMPERED"
         if receipt.is_expired(now):
@@ -404,7 +441,9 @@ class CrestRuntime:
             gen = (payload_for_drift or {}).get("generalization")
             if gen:
                 declared = tuple(f for f in str(gen.get("family", "")).split(",") if f)
-                report = detect_drift(workspace, declared, target=rel_target)
+                requires_existing = operation in ("modify_file", "move_file", "delete_file", "delete_directory")
+                expected_type = "dir" if operation == "delete_directory" else "file"
+                report = detect_drift(workspace, declared, target=rel_target, require_existing=requires_existing, expected_path_type=expected_type)
                 if report.detected and len(report.reasons) >= len(declared):
                     # every evidence family is violated -> drift
                     now_iso = datetime.now(timezone.utc).isoformat()
@@ -418,6 +457,25 @@ class CrestRuntime:
                 if self.config.dry_run:
                     output = {"dry_run": True}
                 else:
+                    # TOCTOU hardening: re-canonicalize and re-validate the
+                    # target immediately before use, after the check->use gap.
+                    if tool in ("filesystem", "git"):
+                        raw_path = arguments.get("path") or arguments.get("destination")
+                        if raw_path is not None:
+                            try:
+                                fresh = canonical_within(self.config.workspace_root, str(raw_path))
+                            except WorkspaceViolation as exc:
+                                self._revoke_row(decision.capability_id, "TOCTOU_WORKSPACE_VIOLATION", datetime.now(timezone.utc).isoformat())
+                                return ToolResult(ok=False, request_id=request_id, agent_id=agent_id, tool=tool, operation=operation,
+                                                  reason=f"TOCTOU_WORKSPACE_VIOLATION:{exc}", target=rel_target,
+                                                  exposure_before=exposure_before, exposure_after=self.store.total_exposure(),
+                                                  duration_ms=(time.perf_counter() - start) * 1000)
+                            if not scope_matches(self.store.get_capability(decision.capability_id).scope, relative_posix(self.config.workspace_root, fresh)):
+                                self._revoke_row(decision.capability_id, "TOCTOU_SCOPE_VIOLATION", datetime.now(timezone.utc).isoformat())
+                                return ToolResult(ok=False, request_id=request_id, agent_id=agent_id, tool=tool, operation=operation,
+                                                  reason="TOCTOU_SCOPE_VIOLATION", target=rel_target,
+                                                  exposure_before=exposure_before, exposure_after=self.store.total_exposure(),
+                                                  duration_ms=(time.perf_counter() - start) * 1000)
                     ctx = AdapterContext(runtime=self, request_id=request_id, agent_id=agent_id, admitted=True, workspace_root=Path(self.config.workspace_root))
                     output = self._dispatch(tool, operation, arguments, ctx)
             except Exception as exc:
@@ -488,14 +546,19 @@ class CrestRuntime:
             row.revocation_reason = reason
             row.updated_at = now_iso
             self.store.upsert_capability(row)
+            if row.receipt_id:
+                # replay protection: revoke the authorizing evidence too
+                self.store.mark_receipt_revoked(row.receipt_id)
         self._audit(None, None, capability_id, None, None, "CAPABILITY_REVOKED", reason, {})
 
     def _audit(self, request_id: str | None, agent_id: str | None, capability_id: str | None, tool: str | None, operation: str | None, event: str, reason: str | None, details: dict[str, Any]) -> None:
         ts = datetime.now(timezone.utc).isoformat()
+        # audit is a public surface: redact secrets before persisting
+        details = redact(details)
         self.store.add_audit(ts, request_id or "-", agent_id, capability_id, tool, operation, event, reason, details)
         try:
             self.config.resolved_audit_path.parent.mkdir(parents=True, exist_ok=True)
-            line = {"timestamp": ts, "request_id": request_id or "-", "agent_id": agent_id, "capability_id": capability_id, "tool": tool, "operation": operation, "decision": event, "reason": reason, **details}
+            line = {"timestamp": ts, "request_id": request_id or "-", "agent_id": agent_id, "capability_id": capability_id, "tool": tool, "operation": operation, "decision": event, "reason": reason, "policy_version": self.config.policy_version, **details}
             with self.config.resolved_audit_path.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(line, default=str) + "\n")
         except OSError:

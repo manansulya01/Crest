@@ -1,0 +1,149 @@
+# Crest Research V0.4
+
+All numbers below come from experiment artifacts in `experiments/results/`
+and generated tables in `experiments/tables/`. Nothing here is estimated or
+rounded in the researcher's favour.
+
+## Abstract
+
+V0.4 asks whether *graded* recovery evidence — with an independent holdout
+generator and distribution shifts — predicts recovery success on environments
+that were never used to verify it. It also asks whether that grading can
+expand autonomous action coverage under a fixed exposure budget without
+raising unsafe admissions. Measured answer: the grading mechanism works as
+designed on the measured families and attacks, and fixture-only evidence was
+demonstrably unsafe in one measured configuration; however Crest cannot yet
+*grant* generalized evidence cheaply, so generalized autonomous coverage
+(GAC) remains 0 in the default policy until verification sample sizes grow.
+
+## Research question
+
+Can independently verified recoverability measurably expand autonomous
+action coverage while realized/certified exposure stays inside the
+constitutional budget?
+
+## System model
+
+A = action class, S = target scope, R = recovery program, V = verifier,
+E = certified exposure, B = budget (E_max), Q = evidence quality (sample
+sufficiency), G = evidence generality (fixture/family/general class).
+
+## Evidence model
+
+- `VERIFIED_FIXTURE`: pass on training-generator fixtures only.
+- `VERIFIED_FAMILY`: pass on training fixtures *and* an independently
+  constructed holdout generator, with sample size and Wilson upper bound
+  below policy thresholds.
+- `VERIFIED_GENERAL`: additionally passes >= 3 distribution shifts
+  (parameter, structural, adversarial) on the holdout generator.
+- `UNVERIFIED`: no holdout evidence, or *any observed failure*. V0.3
+  classified failing runs as `VERIFIED_FIXTURE`; V0.4 removes that conflation
+  because it made failing recovery programs admissible at
+  `min_evidence_class: VERIFIED_FIXTURE`.
+
+## Statistical model
+
+The bounded quantity is the *observed recovery failure rate under the
+evaluated distributions*. The bound is a one-sided Wilson upper confidence
+bound; confidence is configurable (default 0.95). It is **not** a bound on
+real-world harm probability. Zero observed failures over n cases still yield a
+nonzero bound; therefore small n cannot produce strong classes.
+
+## Experimental design
+
+- Generators: training (`crest.fixtures.generate`, fixed-shape trees) and
+  holdout (`crest.holdout_gen.build`, path-graph construction; structurally
+  independent).
+- Distributions: IN_DISTRIBUTION, PARAMETER_SHIFT, STRUCTURAL_SHIFT,
+  ADVERSARIAL_SHIFT, COMPOSITION_SHIFT, OUT_OF_FAMILY.
+- n = 20 per arm in the reported ablation; seeds recorded in JSONL.
+- Baseline: fixture-only evidence (V0.3 policy). Arms: fixture-only, family,
+  generalized.
+
+## Results (measured)
+
+Cross-distribution (`experiments/tables/cross_distribution.md`, n=8): general
+recovery `restore_from_snapshot` scored 1.00 on all eight distributions;
+`overfit_distractor_gate` scored 1.00 in-distribution on the tree family but
+0.00 on the independent holdout generator, and 1.00 only on the adversarial
+shift (which re-injects the artifacts it keys on). `noop_fault` scored 0.00
+everywhere.
+
+Ablation at n=20 (`experiments/tables/ablations.md`):
+
+| mode | honest recovery class | overfit recovery | false admissions | false rejections | mean cost |
+|------|------------------------|------------------|------------------|------------------|-----------|
+| fixture_only | VERIFIED_FIXTURE | admitted (2 cases) | 2 | 0 | 6.5 s |
+| family_evidence | VERIFIED_FAMILY | UNVERIFIED | 0 | 0 | 7.4 s |
+| generalized_evidence | VERIFIED_GENERAL | UNVERIFIED | 0 | 0 | 8.3 s |
+
+Exposure sweep (`exposure_sweep.md`): AAC rises 0.0 -> 0.5 -> 0.5 -> 1.0 for
+E_max = 0.1 / 0.25 / 0.5 / 1.0; certified exposure never exceeded the budget;
+GAC stayed 0 because the sweep's small verification samples could not satisfy
+the family thresholds — conservatism, not a bug.
+
+Confidence sensitivity (n=6, 90/95/99/99.9%): identical admissions in all
+four settings, because decisions are dominated by observed failures rather
+than by the confidence parameter at these sample sizes.
+
+The measured coverage/unsafe-admission/cost frontier is visualized in
+`experiments/plots/frontier.png` (script:
+`experiments/generalization/frontier_plot.py`); default experiment
+parameters are recorded in `experiments/configs/experiment.yaml`.
+
+Drift (`drift.md`): only evidence-family nesting and target identity are
+implemented. Unpinned rename/move drift is NOT detected (documented
+limitation; target pinning was added to close it for pinned capabilities).
+Content drift, scope drift, symlink topology and git-state drift remain
+unimplemented and are reported as such.
+
+Composition (`crest.composition`): single-step and modify-then-move sequences
+verified with full-snapshot recovery; composition is not assumed anywhere.
+
+## Baselines
+
+Uncontrolled and self-grading arms from Milestone 2 are unchanged;
+transactional rollback is not re-implemented in V0.4 (the composition
+verifier is the closest analogue and it measures, not assumes).
+
+## Metrics
+
+AAC = fraction of eligible action classes currently permitted.
+GAC = fraction permitted with evidence >= VERIFIED_FAMILY.
+False admission = admitted under policy but evaluation success < 0.999 on
+the independent distributions. False rejection = denied although evaluation
+success >= 0.999. EvidenceEfficiency = coverage gain per verification second.
+
+## Ablations
+
+No-holdout (fixture-only) admits an unsafe recovery; family and generalized
+policies reject it. Drift/reprobe ablations remain partially measured:
+reprobe is exercised per filesystem execution, drift only for the classes
+listed above.
+
+## Limitations
+
+- Two environment families; no database, container, or network families.
+- Deterministic seeds, not probabilistic sampling.
+- One malicious recovery family (fixture detection) plus Milestone 2 attacks.
+- Verification cost grows with n; at n=20 generalized verification costs
+  ~8 s per capability on this machine, still acceptable but not free.
+- Receipts are content-addressed, not signed.
+
+## Falsification criteria and outcome
+
+Pre-declared criteria are implemented in
+`experiments/generalization/conclusion.py`. On the measured data the verdict
+is **SUPPORTED** within the measured families and attacks: generalized
+evidence admitted the honest recovery, rejected the fixture-overfitting
+recovery, and fixture-only evidence produced 2 measured false admissions.
+
+The verdict is explicitly scoped: it says nothing about untested families,
+real agent environments, or true harm.
+
+## Conclusion
+
+Within its measured scope, Crest can earn autonomy for genuinely general
+recovery programs and refuse it to programs that only work on the fixture.
+The open question — how much useful autonomy can be *granted* (GAC > 0)
+without inordinate verification cost — is not yet answered.

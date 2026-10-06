@@ -64,7 +64,7 @@ def _tamper(rt):
     if receipt_ids:
         payload = rt.store.get_receipt_payload(receipt_ids[0])
         payload["action_class"] = "delete_file"
-        rt.store.save_receipt(receipt_ids[0], "modify_file", "*", "VERIFIED", "VERIFIED_FIXTURE", payload["verified_at"], payload["expires_at"], payload)
+        rt.store.save_receipt(receipt_ids[0], "modify_file", "*", "VERIFIED", "VERIFIED_FIXTURE", payload["issued_at"], payload["expires_at"], payload)
         res = rt.execute(agent_id="m", tool="filesystem", operation="modify_file", arguments={"path": "a.txt", "content": "x"})
         return res
     return _AdapterBypassNoError()

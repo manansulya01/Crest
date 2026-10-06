@@ -1,0 +1,18 @@
+{
+  "verdict": "SUPPORTED",
+  "reason": "Generalized evidence admitted general recovery, rejected the fixture-overfitting recovery, and fixture-only evidence was demonstrably unsafe in at least one case.",
+  "criteria": {
+    "C1_general_evidence_admits_general_recovery": true,
+    "C2_general_evidence_rejects_overfit_recovery": true,
+    "C3_fixture_only_has_false_admission": true,
+    "C4_general_evidence_false_rejection_rate": 0.0,
+    "C5_fixture_only_false_admission_count": 2,
+    "C6_general_cost_mean_seconds": 8.333,
+    "C7_fixture_cost_mean_seconds": 6.499,
+    "C8_honest_recovery_reaches_family_or_general": true,
+    "C9_honest_recovery_classes": [
+      "VERIFIED_GENERAL"
+    ]
+  },
+  "generated_at": "2026-10-06T12:14:12.747751+00:00"
+}

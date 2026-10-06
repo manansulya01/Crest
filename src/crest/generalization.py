@@ -1,10 +1,13 @@
-"""GeneralizationVerifier: runs a recovery proposal across fixture
-families and holdout fixtures, producing conservative Evidence.
+"""GeneralizationVerifier: evaluates a recovery proposal across fixture
+generators, distributions, and a hidden holdout split, producing Evidence
+whose class is decided by configurable policy (not by hardcoded rules).
 
-No fixture may leak across the train/verify/holdout split: seed bases are
-disjoint. A receipt from this verifier is evidence on the *tested
-distribution* only; classification into VERIFIED_FAMILY/GENERAL requires
-the documented policy thresholds.
+Generators:
+  training  crest.fixtures.generate      (fixed-shape synthetic trees)
+  holdout   crest.holdout_gen.build      (path-graph construction, independent)
+
+The learner never receives either generator, the shift definitions, or the
+holdout seeds.
 """
 from __future__ import annotations
 
@@ -13,38 +16,45 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from .actions import ACTIONS
+from .distributions import Distribution, apply_distribution
 from .env_family import FAMILIES, EnvironmentFamily
 from .evidence import Evidence, EvidenceClass, EvidenceStatus, failure_upper_bound
-from .fixtures import generate
+from .fixtures import generate as train_generate
+from .holdout_gen import build as holdout_build
+from .policy import EvidencePolicy
 from .recovery import RecoveryContext, RecoveryProgram, get_handler
 from .workspace import Workspace
 
-VERIFIER_VERSION = "generalization-v1"
+VERIFIER_VERSION = "generalization-v2"
+
+SHIFT_DISTRIBUTIONS: tuple[Distribution, ...] = (
+    Distribution.PARAMETER_SHIFT,
+    Distribution.STRUCTURAL_SHIFT,
+    Distribution.ADVERSARIAL_SHIFT,
+)
 
 
-def _run_once(action_class: str, family: EnvironmentFamily, seed: int, recovery: RecoveryProgram, params: dict | None = None) -> bool:
+def _trial(action_class: str, family: EnvironmentFamily, recovery: RecoveryProgram, seed: int, distribution: Distribution, use_holdout_generator: bool, params: dict | None = None) -> bool:
     ws = Workspace.temporary()
     try:
-        fx = generate(ws, family=family, seed=seed)
+        fixture = holdout_build(ws, family, seed) if use_holdout_generator else train_generate(ws, family=family, seed=seed)
+        apply_distribution(ws, fixture.target, distribution, seed=seed)
         pre = ws.snapshot()
+        target = fixture.target
         action_params = dict(params or {})
         if action_class == "modify_file":
             action_params = {"content": "modified\n"}
-        if action_class == "move_file":
-            action_params = {"destination": "moved.txt"}
-        if action_class == "delete_directory":
-            fx_target = "docs"
-        else:
-            fx_target = fx.target
+        elif action_class == "move_file":
+            action_params = {"destination": "moved-" + target.rsplit("/", 1)[-1]}
         try:
-            ACTIONS[action_class](ws, fx_target, action_params)
-        except (FileNotFoundError, FileExistsError, NotADirectoryError):
+            ACTIONS[action_class](ws, target, action_params)
+        except Exception:
             return False
         handler = get_handler(recovery.kind)
         if handler is None:
             return False
         try:
-            handler(ws, RecoveryContext(action_class, fx_target, action_params, pre))
+            handler(ws, RecoveryContext(action_class, target, action_params, pre))
         except Exception:
             return False
         return ws.state_matches(pre)
@@ -52,80 +62,113 @@ def _run_once(action_class: str, family: EnvironmentFamily, seed: int, recovery:
         ws.cleanup()
 
 
-def _classify(*, holdout_total: int, holdout_failures: int, actual_failures: int, total: int, cross_family: bool) -> EvidenceClass:
-    """Evidence classification policy (V0.3, conservative, documented).
-
-    VERIFIED_GENERAL requires: holdout>=8, zero holdout failures, zero total
-    failures across >=2 families.
-    VERIFIED_FAMILY requires: holdout>=4, <=1 holdout failure, zero verify
-    failures within the declared family.
-    Otherwise VERIFIED_FIXTURE (or UNVERIFIED when failures observed).
-    """
-    if total == 0:
-        return EvidenceClass.UNVERIFIED
-    if actual_failures > 0:
-        if holdout_failures > 0:
-            return EvidenceClass.VERIFIED_FIXTURE if holdout_total < 4 else EvidenceClass.UNVERIFIED
-        return EvidenceClass.VERIFIED_FIXTURE
-    if cross_family and holdout_total >= 8:
-        return EvidenceClass.VERIFIED_GENERAL
-    if holdout_total >= 4:
-        return EvidenceClass.VERIFIED_FAMILY
-    return EvidenceClass.VERIFIED_FIXTURE
-
-
 class GeneralizationVerifier:
-    def __init__(self, *, train_seeds: int = 3, verify_seeds: int = 4, holdout_seeds: int = 4):
-        self.train_seeds = train_seeds
-        self.verify_seeds = verify_seeds
-        self.holdout_seeds = holdout_seeds
+    def __init__(
+        self,
+        *,
+        policy: EvidencePolicy | None = None,
+        verification_cases: int = 10,
+        holdout_cases: int = 10,
+        shift_cases: int = 10,
+        verification_seed_base: int = 1000,
+        holdout_seed_base: int = 90000,
+        shift_seed_base: int = 50000,
+    ):
+        self.policy = policy or EvidencePolicy()
+        self.verification_cases = verification_cases
+        self.holdout_cases = holdout_cases
+        self.shift_cases = shift_cases
+        self.verification_seed_base = verification_seed_base
+        self.holdout_seed_base = holdout_seed_base
+        self.shift_seed_base = shift_seed_base
+        self.last_measurement: dict[str, object] = {}
+
+    # -- measurement ------------------------------------------------------
+    def _rate(self, action_class: str, recovery: RecoveryProgram, family: EnvironmentFamily, *, n: int, base: int, distribution: Distribution, holdout_gen: bool, params: dict | None) -> tuple[int, int, float]:
+        ok = 0
+        t0 = time.perf_counter()
+        for i in range(n):
+            if _trial(action_class, family, recovery, base + i, distribution, holdout_gen, params):
+                ok += 1
+        return ok, n, time.perf_counter() - t0
 
     def verify(
         self,
         *,
         action_class: str,
         recovery: RecoveryProgram,
-        family_ids: tuple[str, ...] | None = None,
-        seed_base: int = 0,
+        family_ids: tuple[str, ...] = ("filesystem.single_file",),
         params: dict | None = None,
     ) -> Evidence:
-        families = [FAMILIES[fid] for fid in (family_ids or ("filesystem.single_file",))]
-        handle = get_handler(recovery.kind)
-        fixtures_tested = fixtures_passed = 0
-        holdout_fixtures = holdout_passed = 0
-        failures_total = 0
-        now = datetime.now(timezone.utc)
+        families = [FAMILIES[fid] for fid in family_ids]
+        handler_available = get_handler(recovery.kind) is not None
 
-        # train + verify are the fixture-testing population
+        ver_pass = ver_n = 0
+        hold_pass = hold_n = 0
+        shift_pass = shift_n = 0
+        adversarial_pass = adversarial_n = 0
+        cost = 0.0
+
         for fam in families:
-            for s in range(self.train_seeds + self.verify_seeds):
-                ok = _run_once(action_class, fam, seed_base + 1000 + s, recovery, params) if handle else False
-                fixtures_tested += 1
-                fixtures_passed += int(ok)
-                failures_total += int(not ok)
+            if not handler_available:
+                continue
+            p, n, s = self._rate(action_class, recovery, fam, n=self.verification_cases, base=self.verification_seed_base, distribution=Distribution.IN_DISTRIBUTION, holdout_gen=False, params=params)
+            ver_pass += p; ver_n += n; cost += s
+            # Level-2/3 holdout: independent generator, unseen seeds
+            p, n, s = self._rate(action_class, recovery, fam, n=self.holdout_cases, base=self.holdout_seed_base, distribution=Distribution.IN_DISTRIBUTION, holdout_gen=True, params=params)
+            hold_pass += p; hold_n += n; cost += s
+            # distribution shifts on the independent generator
+            for d in SHIFT_DISTRIBUTIONS:
+                p, n, s = self._rate(action_class, recovery, fam, n=self.shift_cases, base=self.shift_seed_base, distribution=d, holdout_gen=True, params=params)
+                shift_pass += p; shift_n += n; cost += s
+                if d is Distribution.ADVERSARIAL_SHIFT:
+                    adversarial_pass += p; adversarial_n += n
 
-        # independent holdout seeds are never visible to the learner
-        for fam in families:
-            for s in range(self.holdout_seeds):
-                ok = _run_once(action_class, fam, seed_base + 5000 + s, recovery, params) if handle else False
-                holdout_fixtures += 1
-                holdout_passed += int(ok)
-                failures_total += int(not ok)
+        if not handler_available:
+            # no executable recovery program: there is no evidence at all,
+            # which is different from "evidence of failure"
+            now = datetime.now(timezone.utc)
+            return Evidence(
+                evidence_id=uuid.uuid4().hex[:16],
+                action_class=action_class,
+                target_scope="*",
+                environment_family=",".join(f.family_id for f in families),
+                recovery_program_digest=recovery.digest,
+                verification_version=VERIFIER_VERSION,
+                verifier_version=VERIFIER_VERSION,
+                test_suite_digest="none",
+                fixtures_tested=0, fixtures_passed=0, fixtures_failed=0,
+                holdout_fixtures=0, holdout_passed=0, holdout_failed=0,
+                fault_models_tested=(),
+                recovery_success_rate=0.0,
+                confidence_level=self.policy.statistics.confidence,
+                upper_bound_exposure=1.0,
+                propagation_bound=0,
+                recovery_time_bound_ms=0.0,
+                distribution_shift_failures=0,
+                created_at=now.isoformat(),
+                expires_at=(now + timedelta(seconds=3600)).isoformat(),
+                evidence_class=EvidenceClass.UNVERIFIED,
+                status=EvidenceStatus.WEAK,
+                sampling_method="none (no executable recovery program)",
+                population_scope="none",
+            )
 
-        success = (fixtures_passed + holdout_passed) / max(1, fixtures_tested + holdout_fixtures)
-        holdout_failures = holdout_fixtures - holdout_passed
-        verify_failures = fixtures_tested - fixtures_passed
-        cross_family = len(families) > 1
-        evidence_class = _classify(
-            holdout_total=holdout_fixtures, holdout_failures=holdout_failures,
-            actual_failures=verify_failures + holdout_failures, total=fixtures_tested + holdout_fixtures,
-            cross_family=cross_family,
+        evidence_class, status, diag = self.policy.classify(
+            verification_cases=ver_n,
+            verification_failures=ver_n - ver_pass,
+            holdout_cases=hold_n,
+            holdout_failures=hold_n - hold_pass,
+            shift_distributions=len(SHIFT_DISTRIBUTIONS) if shift_n else 0,
+            shift_failures=shift_n - shift_pass,
+            adversarial_checked=adversarial_n > 0,
+            adversarial_failures=adversarial_n - adversarial_pass,
+            distributions_tested=tuple(d.value for d in SHIFT_DISTRIBUTIONS),
         )
-        if evidence_class is EvidenceClass.UNVERIFIED and success > 0:
-            # partial success without policy-compliant holdout still yields fixture-level evidence
-            evidence_class = EvidenceClass.VERIFIED_FIXTURE
-
-        return Evidence(
+        now = datetime.now(timezone.utc)
+        total_pass = ver_pass + hold_pass + shift_pass
+        total_n = ver_n + hold_n + shift_n
+        evidence = Evidence(
             evidence_id=uuid.uuid4().hex[:16],
             action_class=action_class,
             target_scope="*",
@@ -133,21 +176,36 @@ class GeneralizationVerifier:
             recovery_program_digest=recovery.digest,
             verification_version=VERIFIER_VERSION,
             verifier_version=VERIFIER_VERSION,
-            test_suite_digest=f"train{self.train_seeds}-verify{self.verify_seeds}-holdout{self.holdout_seeds}",
-            fixtures_tested=fixtures_tested,
-            fixtures_passed=fixtures_passed,
-            fixtures_failed=fixtures_tested - fixtures_passed,
-            holdout_fixtures=holdout_fixtures,
-            holdout_passed=holdout_passed,
-            holdout_failed=holdout_failures,
-            fault_models_tested=("baseline",),
-            recovery_success_rate=success,
-            confidence_level=round(min(fixtures_passed + holdout_passed, fixtures_tested + holdout_fixtures) / max(1, fixtures_tested + holdout_fixtures), 4),
-            upper_bound_exposure=failure_upper_bound(failures_total, fixtures_tested + holdout_fixtures),
+            test_suite_digest=f"ver{self.verification_cases}-hold{self.holdout_cases}-shift{self.shift_cases}x{len(SHIFT_DISTRIBUTIONS)}",
+            fixtures_tested=ver_n + hold_n,
+            fixtures_passed=ver_pass + hold_pass,
+            fixtures_failed=(ver_n - ver_pass) + (hold_n - hold_pass),
+            holdout_fixtures=hold_n,
+            holdout_passed=hold_pass,
+            holdout_failed=hold_n - hold_pass,
+            fault_models_tested=tuple(d.value for d in SHIFT_DISTRIBUTIONS),
+            recovery_success_rate=round(total_pass / total_n, 6) if total_n else 0.0,
+            confidence_level=self.policy.statistics.confidence,
+            upper_bound_exposure=failure_upper_bound(total_n - total_pass, total_n),
             propagation_bound=1,
             recovery_time_bound_ms=0.0,
+            distribution_shift_failures=shift_n - shift_pass,
             created_at=now.isoformat(),
             expires_at=(now + timedelta(seconds=3600)).isoformat(),
             evidence_class=evidence_class,
-            status=EvidenceStatus.OK if failures_total == 0 else EvidenceStatus.WEAK,
+            status=status,
+            sampling_method="train-generator + independent-holdout-generator + shift-distributions",
+            population_scope=",".join(f.family_id for f in families),
         )
+        self.last_measurement = {
+            "verification": {"passed": ver_pass, "n": ver_n},
+            "holdout": {"passed": hold_pass, "n": hold_n},
+            "shifts": {"passed": shift_pass, "n": shift_n, "distributions": [d.value for d in SHIFT_DISTRIBUTIONS]},
+            "adversarial": {"passed": adversarial_pass, "n": adversarial_n},
+            "diagnostics": diag,
+            "cost_seconds": round(cost, 3),
+        }
+        return evidence
+
+    def measurement(self) -> dict[str, object]:
+        return self.last_measurement

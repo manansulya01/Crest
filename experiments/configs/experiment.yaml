@@ -1,0 +1,45 @@
+# Default V0.4 research experiment configuration.
+# All artifacts under experiments/results/ were produced with this setup.
+evidence:
+  fixture:
+    requires_exact_scope: true
+  family:
+    minimum_verification_cases: 10
+    minimum_holdout_cases: 10
+    maximum_failure_upper_bound: 0.05
+  general:
+    minimum_holdout_cases: 20
+    minimum_shift_distributions: 3
+    maximum_failure_upper_bound: 0.01
+    require_adversarial_shift: true
+statistics:
+  confidence: 0.95
+  minimum_samples:
+    family: 20
+    general: 50
+experiments:
+  ablations:
+    n_per_measurement: 20
+    actions: [delete_file, modify_file]
+    families: [filesystem.single_file, filesystem.directory_tree]
+    recoveries: [restore_from_snapshot, overfit_distractor_gate]
+  exposure_sweep:
+    e_max_values: [0.1, 0.25, 0.5, 1.0]
+  confidence_sensitivity:
+    levels: [0.90, 0.95, 0.99, 0.999]
+    n_per_measurement: 6
+  cross_distribution:
+    n_per_distribution: 8
+  drift:
+    drift_classes:
+      - target_moved
+      - target_renamed
+      - directory_structure_changed
+      - additional_distractors
+      - scope_changed
+      - file_content_changed
+      - symlink_introduced
+      - git_state_changed
+notes: |
+  Seeds are fixed for reproducibility. Every run prints and records its seed;
+  `crest experiment <name> --seed random` is supported for stress runs.

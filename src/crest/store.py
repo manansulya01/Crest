@@ -7,11 +7,26 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class SecurityStateCorrupt(Exception):
     pass
+
+
+def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
+    """v1 -> v2: receipts gained issued_at/expires_at indexing columns and an
+    explicit migration history. Existing rows are migrated, never discarded."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(receipts)")}
+    if "status" not in cols:  # pragma: no cover - defensive
+        raise SecurityStateCorrupt("receipts table missing expected columns")
+    # v2 keeps the same physical table; the semantic change is the migration
+    # history row plus schema_version bump, so that security state is never
+    # silently reinterpreted.
+    conn.execute("INSERT OR IGNORE INTO migrations (version, applied_at, note) VALUES (1, 'unknown', 'initial')")
+    conn.execute("INSERT OR IGNORE INTO migrations (version, applied_at, note) VALUES (?,?,?)", (2, "unknown", "v1->v2 receipt payload versioning"))
+    conn.execute("UPDATE meta SET value='2' WHERE key='schema_version'")
+    conn.commit()
 
 
 @dataclass
@@ -42,6 +57,7 @@ class Store:
         self._conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+            CREATE TABLE IF NOT EXISTS migrations (version INTEGER PRIMARY KEY, applied_at TEXT, note TEXT);
             CREATE TABLE IF NOT EXISTS capabilities (
                 capability_id TEXT PRIMARY KEY, action_class TEXT, scope TEXT,
                 state TEXT, receipt_id TEXT, created_at TEXT, updated_at TEXT,
@@ -62,10 +78,22 @@ class Store:
         cur = self._conn.execute("SELECT value FROM meta WHERE key='schema_version'")
         row = cur.fetchone()
         if row is None:
-            self._conn.execute("INSERT INTO meta VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
-        elif int(row[0]) != SCHEMA_VERSION:
-            raise SecurityStateCorrupt(f"unsupported schema version {row[0]}")
+            self._conn.execute("INSERT INTO meta VALUES ('schema_version', ?)", ("1",))
+            self._conn.execute("INSERT OR IGNORE INTO migrations VALUES (1, 'unknown', 'initial')")
+            self._conn.execute("UPDATE meta SET value='2' WHERE key='schema_version'")
+            self._conn.execute("INSERT OR IGNORE INTO migrations VALUES (2, 'unknown', 'v1->v2 receipt payload versioning')")
+            self._conn.commit()
+            return
+        current = int(row[0])
+        if current == 1:
+            _migrate_v1_to_v2(self._conn)
+            current = 2
+        if current != SCHEMA_VERSION:
+            raise SecurityStateCorrupt(f"unsupported schema version {current}")
         self._conn.commit()
+
+    def migration_history(self) -> list[tuple[int, str, str]]:
+        return [(int(r[0]), r[1], r[2]) for r in self._conn.execute("SELECT version, applied_at, note FROM migrations ORDER BY version")]
 
     def close(self) -> None:
         self._conn.close()
@@ -99,6 +127,22 @@ class Store:
         cur = self._conn.execute("SELECT payload_json FROM receipts WHERE receipt_id=?", (receipt_id,))
         row = cur.fetchone()
         return json.loads(row[0]) if row else None
+
+    def mark_receipt_revoked(self, receipt_id: str) -> None:
+        """Replay protection: a revoked receipt can never authorize again."""
+        cur = self._conn.execute("SELECT payload_json FROM receipts WHERE receipt_id=?", (receipt_id,))
+        row = cur.fetchone()
+        if row is None:
+            return
+        payload = json.loads(row[0])
+        payload["revoked"] = True
+        self._conn.execute("UPDATE receipts SET payload_json=?, status=? WHERE receipt_id=?", (json.dumps(payload), "REVOKED", receipt_id))
+        self._conn.commit()
+
+    def is_receipt_revoked(self, receipt_id: str) -> bool:
+        cur = self._conn.execute("SELECT payload_json FROM receipts WHERE receipt_id=?", (receipt_id,))
+        row = cur.fetchone()
+        return bool(json.loads(row[0]).get("revoked")) if row else False
 
     def list_receipts(self) -> list[dict[str, Any]]:
         cur = self._conn.execute("SELECT receipt_id, action_class, scope, status, evidence_classification, created_at, expires_at FROM receipts ORDER BY created_at")

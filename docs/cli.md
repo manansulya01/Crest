@@ -15,6 +15,7 @@ crest evidence list
 crest doctor
 crest benchmark [admission|security|generalization|drift|all]
 crest report
+crest experiment {cross-distribution|ablations|exposure-sweep|confidence|drift|tables|conclusion|holdout}
 ```
 
 Exit codes: 0 ok; 3 denied/security failure; 4 not found; argparse errors: 2.

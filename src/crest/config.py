@@ -8,9 +8,24 @@ from pathlib import Path
 
 import yaml
 
+from .policy import EvidencePolicy, FamilyPolicy, GeneralPolicy, StatisticsPolicy
+
 DEFAULT_SHELL_ALLOWLIST = [
     "pwd", "ls", "dir", "git status", "git diff", "python --version", "echo",
 ]
+
+
+@dataclass(frozen=True)
+class ResourceLimits:
+    """Bounds on verification work, to avoid verification-induced DoS."""
+    max_verification_seconds: float = 300.0
+    max_verification_cases: int = 500
+    max_holdout_cases: int = 500
+    max_shift_cases: int = 200
+    max_fixture_files: int = 5000
+    max_adapter_output_bytes: int = 256 * 1024
+    max_shell_output_bytes: int = 64 * 1024
+    max_argument_bytes: int = 64 * 1024
 
 
 @dataclass(frozen=True)
@@ -32,6 +47,10 @@ class CrestConfig:
     state_dir: Path | None = None
     audit_path: Path | None = None
     dry_run: bool = False
+    policy_version: str = "policy-v1"
+    mode: str = "production"  # production | research
+    evidence_policy: EvidencePolicy = field(default_factory=EvidencePolicy)
+    limits: "ResourceLimits" = field(default_factory=lambda: ResourceLimits())
 
     @property
     def resolved_state_dir(self) -> Path:
@@ -55,6 +74,19 @@ class CrestConfig:
             problems.append("receipt_ttl_seconds must be positive")
         if self.min_evidence_class not in ("UNVERIFIED", "VERIFIED_FIXTURE", "VERIFIED_FAMILY", "VERIFIED_GENERAL"):
             problems.append(f"invalid min_evidence_class {self.min_evidence_class}")
+        if self.mode not in ("production", "research"):
+            problems.append("mode must be production or research")
+        if self.limits.max_verification_cases <= 0 or self.limits.max_holdout_cases <= 0 or self.limits.max_shift_cases <= 0:
+            problems.append("verification case limits must be positive")
+        if self.limits.max_verification_seconds <= 0:
+            problems.append("max_verification_seconds must be positive")
+        try:
+            self.evidence_policy.validate()
+        except ValueError as exc:
+            problems.append(str(exc))
+        # production mode must not be configured with an internally
+        # inconsistent evidence policy (already validated above); research
+        # mode additionally permits experimental minima.
         if problems:
             raise ValueError("invalid CrestConfig: " + "; ".join(problems))
 
@@ -71,6 +103,38 @@ def load(path: Path | str) -> CrestConfig:
     shell_raw = data.get("shell", {}).get("allowlist")
     state_raw = data.get("state", {}).get("dir")
     audit_raw = data.get("audit", {}).get("path")
+    ev_raw = data.get("evidence", {})
+    stats_raw = data.get("statistics", {})
+    limits_raw = data.get("limits", {})
+    policy = EvidencePolicy(
+        fixture_requires_exact_scope=bool(ev_raw.get("fixture", {}).get("requires_exact_scope", True)),
+        family=FamilyPolicy(
+            minimum_verification_cases=int(ev_raw.get("family", {}).get("minimum_verification_cases", 10)),
+            minimum_holdout_cases=int(ev_raw.get("family", {}).get("minimum_holdout_cases", 10)),
+            maximum_failure_upper_bound=float(ev_raw.get("family", {}).get("maximum_failure_upper_bound", 0.05)),
+        ),
+        general=GeneralPolicy(
+            minimum_holdout_cases=int(ev_raw.get("general", {}).get("minimum_holdout_cases", 20)),
+            minimum_shift_distributions=int(ev_raw.get("general", {}).get("minimum_shift_distributions", 3)),
+            maximum_failure_upper_bound=float(ev_raw.get("general", {}).get("maximum_failure_upper_bound", 0.01)),
+            require_adversarial_shift=bool(ev_raw.get("general", {}).get("require_adversarial_shift", True)),
+        ),
+        statistics=StatisticsPolicy(
+            confidence=float(stats_raw.get("confidence", 0.95)),
+            minimum_samples_family=int(stats_raw.get("minimum_samples", {}).get("family", 20)),
+            minimum_samples_general=int(stats_raw.get("minimum_samples", {}).get("general", 50)),
+        ),
+    )
+    limits = ResourceLimits(
+        max_verification_seconds=float(limits_raw.get("max_verification_seconds", 300.0)),
+        max_verification_cases=int(limits_raw.get("max_verification_cases", 500)),
+        max_holdout_cases=int(limits_raw.get("max_holdout_cases", 500)),
+        max_shift_cases=int(limits_raw.get("max_shift_cases", 200)),
+        max_fixture_files=int(limits_raw.get("max_fixture_files", 5000)),
+        max_adapter_output_bytes=int(limits_raw.get("max_adapter_output_bytes", 256 * 1024)),
+        max_shell_output_bytes=int(limits_raw.get("max_shell_output_bytes", 64 * 1024)),
+        max_argument_bytes=int(limits_raw.get("max_argument_bytes", 64 * 1024)),
+    )
     cfg = CrestConfig(
         workspace_root=root,
         e_max=float(exposure.get("max_window_exposure", 1.0)),
@@ -86,6 +150,10 @@ def load(path: Path | str) -> CrestConfig:
         state_dir=Path(state_raw) if state_raw else None,
         audit_path=Path(audit_raw) if audit_raw else None,
         dry_run=bool(runtime.get("dry_run", False)),
+        policy_version=str(data.get("policy", {}).get("version", "policy-v1")),
+        mode=str(data.get("runtime", {}).get("mode", "production")),
+        evidence_policy=policy,
+        limits=limits,
     )
     cfg.validate()
     return cfg
@@ -108,11 +176,38 @@ admission:
   max_receipt_age_seconds: 3600
   min_recovery_success_rate: 0.95
   max_recovery_p99_ms: 10000
+evidence:
+  fixture:
+    requires_exact_scope: true
+  family:
+    minimum_verification_cases: 10
+    minimum_holdout_cases: 10
+    maximum_failure_upper_bound: 0.05
+  general:
+    minimum_holdout_cases: 20
+    minimum_shift_distributions: 3
+    maximum_failure_upper_bound: 0.01
+    require_adversarial_shift: true
+statistics:
+  confidence: 0.95
+  minimum_samples:
+    family: 20
+    general: 50
+limits:
+  max_verification_seconds: 300
+  max_verification_cases: 500
+  max_holdout_cases: 500
+  max_shift_cases: 200
+policy:
+  version: policy-v1
 revocation:
   enabled: true
   immediate: true
 runtime:
   dry_run: false
+  # production (default) fails closed; research permits experimental
+  # verification policies and verbose experiment tooling.
+  mode: production
 shell:
   allowlist:
     - pwd

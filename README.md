@@ -1,6 +1,17 @@
-# Crest runtime: execution control plane for agents.
+# Crest
 
-Agents propose. The constitution grants.
+Crest is an execution control plane for AI agents that grants autonomous tool
+capabilities only when independently verified recovery evidence and
+constitutional exposure limits justify the action.
+
+> Learning proposes. Evidence certifies. The constitution grants. Observation
+> can revoke.
+
+**Crest does not provide unconditional safety guarantees.** Its evidence and
+exposure guarantees are conditional on the validity and scope of the
+verifier, evidence model, environment assumptions, and constitutional policy.
+In V0.4 the strongest evidence class Crest can grant is measured over specific
+environment families and distributions — not over "the real world".
 
 ```text
 agent request -> CrestRuntime.check/execute -> admission decision -> adapter (fs/git/shell) -> audit
@@ -42,6 +53,25 @@ r = gw.execute(ToolRequest(agent_id="agent-1", tool="filesystem", operation="mod
 # r.ok / r.reason / r.exposure_after / audit persisted
 ```
 
+## V0.4 — generalized evidence, cross-distribution evaluation, honest statistics
+
+- **Independent holdout generator** (`crest.holdout_gen`) — structurally
+  different from the training fixture generator.
+- **Distributions** (`crest.distributions`) — in-distribution, parameter,
+  structural, adversarial, composition, out-of-family.
+- **Policy-driven evidence classes** (`crest.policy`) — Wilson upper bounds,
+  configurable confidence, small-sample guards; observed failures ⇒
+  `UNVERIFIED` (fixing a V0.3 conflation).
+- **Replay protection** — revoking a capability revokes its receipt.
+- **Receipt v2** — versioned schema, canonical serialization, payload/evidence
+  digests (content integrity only; no signatures).
+- **Migrations** with history, crash-consistency tests, MCP-style gateway,
+  secret redaction, `crest doctor` with ERROR/WARNING/INFO, `crest experiment`
+  runners for every research artifact.
+
+Research findings and limitations: `docs/research-v0.4.md`,
+`docs/security-review-v0.4.md`.
+
 ## V0.3 generalized evidence
 
 Receipts are graded into evidence classes: `VERIFIED_FIXTURE`,
@@ -54,7 +84,8 @@ workspace. See `docs/research-v0.3.md` and
 `python examples/generalized_evidence_demo.py`.
 
 New CLI surface: `crest verify-generalized`, `crest evidence list`,
-`crest doctor`, `crest benchmark`, `crest report`, `crest exec --dry-run`.
+`crest doctor`, `crest benchmark`, `crest report`, `crest exec --dry-run`,
+`crest experiment {cross-distribution,ablations,exposure-sweep,confidence,drift,tables,conclusion,holdout}`.
 
 ## Research lineage and honest boundary
 

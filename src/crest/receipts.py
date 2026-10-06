@@ -1,23 +1,38 @@
-"""Capability receipts: typed, content-addressed evidence records.
+"""Receipt format v2: explicit digests, canonical serialization, replay fields.
 
-A receipt is hash-bound to action class, target scope, recovery program,
-verifier version, test configuration, and measured evidence. V0 uses
-content-addressed hashing; no cryptographic signing is claimed.
+Content integrity (hash binding) is implemented. Cryptographic authenticity
+is NOT implemented: there is no signature, and none is claimed.
 """
 from __future__ import annotations
 
 import dataclasses
 import json
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from .hashing import digest_of
+from .hashing import canonical_bytes, digest_of
 
-RECEIPT_VERSION = "0.1"
+RECEIPT_VERSION = "2.0"
+SCHEMA_VERSION = 2
 STATUS_VERIFIED = "VERIFIED"
 STATUS_FAILED = "FAILED"
 STATUS_ERROR = "ERROR"
+
+
+def canonical_json(obj: Any) -> str:
+    """Stable serialization used for every digest. Dict ordering never
+    matters; only the canonical form is hashed."""
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), default=_default)
+
+
+def _default(o: Any) -> Any:
+    if isinstance(o, (bytes, bytearray)):
+        return o.hex()
+    if hasattr(o, "value"):
+        return o.value
+    raise TypeError(f"not serializable: {type(o)!r}")
 
 
 def utcnow() -> datetime:
@@ -43,34 +58,27 @@ class RecoveryEvidence:
         return digest_of(dataclasses.asdict(self))
 
 
-def _bound_payload(r: "CapabilityReceipt") -> dict[str, Any]:
-    return {
-        "receipt_version": r.receipt_version,
-        "action_class": r.action_class,
-        "target_scope": r.target_scope,
-        "recovery_program_digest": r.recovery_program_digest,
-        "verification_environment": r.verification_environment,
-        "evidence_digest": r.evidence_digest,
-        "verified_at": r.verified_at,
-        "expires_at": r.expires_at,
-        "status": r.status,
-    }
-
-
 @dataclass(frozen=True)
 class CapabilityReceipt:
+    receipt_id: str
     receipt_version: str
+    schema_version: int
+    issued_at: str
     action_class: str
     target_scope: str
     recovery_program_digest: str
     verification_environment: str
+    verifier_version: str
+    policy_version: str
     evidence: RecoveryEvidence
-    verified_at: str
     expires_at: str
     status: str
     evidence_digest: str
+    payload_digest: str
     bound_digest: str
+    revoked: bool = False
 
+    # ---------------- construction ----------------
     @staticmethod
     def create(
         *,
@@ -81,39 +89,89 @@ class CapabilityReceipt:
         status: str,
         now: datetime,
         ttl_seconds: float,
+        verifier_version: str = "unknown",
+        policy_version: str = "policy-v1",
+        receipt_id: str | None = None,
     ) -> "CapabilityReceipt":
-        verified_at = now.astimezone(timezone.utc).isoformat()
-        expires_at = (now.astimezone(timezone.utc) + timedelta(seconds=ttl_seconds)).isoformat()
+        issued = now.astimezone(timezone.utc)
+        issued_at = issued.isoformat()
+        expires_at = (issued + timedelta(seconds=ttl_seconds)).isoformat()
         evidence_digest = evidence.digest()
-        tmp = CapabilityReceipt(
+        payload = {
+            "action_class": action_class,
+            "target_scope": target_scope,
+            "recovery_program_digest": recovery_program_digest,
+            "verification_environment": evidence.verification_environment,
+            "verifier_version": verifier_version,
+            "policy_version": policy_version,
+            "evidence_digest": evidence_digest,
+            "issued_at": issued_at,
+            "expires_at": expires_at,
+            "status": status,
+            "schema_version": SCHEMA_VERSION,
+            "receipt_version": RECEIPT_VERSION,
+        }
+        payload_digest = digest_of(payload)
+        final_id = receipt_id or uuid.uuid4().hex
+        return CapabilityReceipt(
+            receipt_id=final_id,
             receipt_version=RECEIPT_VERSION,
+            schema_version=SCHEMA_VERSION,
+            issued_at=issued_at,
             action_class=action_class,
             target_scope=target_scope,
             recovery_program_digest=recovery_program_digest,
             verification_environment=evidence.verification_environment,
+            verifier_version=verifier_version,
+            policy_version=policy_version,
             evidence=evidence,
-            verified_at=verified_at,
             expires_at=expires_at,
             status=status,
             evidence_digest=evidence_digest,
-            bound_digest="",
+            payload_digest=payload_digest,
+            bound_digest=digest_of({"payload_digest": payload_digest, "receipt_id": final_id, "schema_version": SCHEMA_VERSION}),
+            revoked=False,
         )
-        return CapabilityReceipt(**{**dataclasses.asdict(tmp), "evidence": evidence, "bound_digest": digest_of(_bound_payload(tmp))})
+
+    # ---------------- integrity ----------------
+    def recompute_payload_digest(self) -> str:
+        return digest_of(
+            {
+                "action_class": self.action_class,
+                "target_scope": self.target_scope,
+                "recovery_program_digest": self.recovery_program_digest,
+                "verification_environment": self.verification_environment,
+                "verifier_version": self.verifier_version,
+                "policy_version": self.policy_version,
+                "evidence_digest": self.evidence_digest,
+                "issued_at": self.issued_at,
+                "expires_at": self.expires_at,
+                "status": self.status,
+                "schema_version": self.schema_version,
+                "receipt_version": self.receipt_version,
+            }
+        )
 
     def is_hash_valid(self) -> bool:
         if self.evidence.digest() != self.evidence_digest:
             return False
-        return digest_of(_bound_payload(self)) == self.bound_digest
+        if self.recompute_payload_digest() != self.payload_digest:
+            return False
+        return digest_of({"payload_digest": self.payload_digest, "receipt_id": self.receipt_id, "schema_version": self.schema_version}) == self.bound_digest
 
     def is_expired(self, now: datetime) -> bool:
-        exp = datetime.fromisoformat(self.expires_at)
-        return now.astimezone(timezone.utc) >= exp
+        return now.astimezone(timezone.utc) >= datetime.fromisoformat(self.expires_at)
 
+    def canonical_payload(self) -> str:
+        return canonical_json(self.to_dict())
+
+    # ---------------- serialization ----------------
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "CapabilityReceipt":
         names = {f.name for f in dataclasses.fields(cls)}
         d = {k: v for k, v in d.items() if k in names}
-        d["evidence"] = RecoveryEvidence(**d["evidence"])
+        if "evidence" in d and isinstance(d["evidence"], dict):
+            d["evidence"] = RecoveryEvidence(**d["evidence"])
         return cls(**d)
 
     def to_dict(self) -> dict[str, Any]:

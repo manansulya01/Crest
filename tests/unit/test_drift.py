@@ -15,6 +15,37 @@ def test_flat_workspace_matches_single_file_family():
         ws.cleanup()
 
 
+def test_missing_target_is_identity_drift():
+    ws = Workspace.temporary()
+    try:
+        ws.write("keep.txt", b"1")
+        report = detect(ws, ("filesystem.single_file",), target="a.txt")
+        assert report.detected
+        assert any("moved_or_renamed" in r for r in report.reasons)
+    finally:
+        ws.cleanup()
+
+
+def test_path_type_change_detected():
+    ws = Workspace.temporary()
+    try:
+        ws.write("thing/inner.txt", b"1")
+        report = detect(ws, ("filesystem.directory_tree",), target="thing", expected_path_type="file")
+        assert report.detected
+        assert any("path_type_changed" in r for r in report.reasons)
+    finally:
+        ws.cleanup()
+
+
+def test_create_target_absence_is_not_drift_when_not_required():
+    ws = Workspace.temporary()
+    try:
+        report = detect(ws, ("filesystem.single_file",), target="new.txt", require_existing=False)
+        assert not report.detected
+    finally:
+        ws.cleanup()
+
+
 def test_nested_target_mismatches_single_file_family():
     ws = Workspace.temporary()
     try:
