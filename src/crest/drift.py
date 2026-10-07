@@ -7,10 +7,11 @@ workspace satisfies. It does not claim to detect all drift.
 Drift taxonomy (V0.4):
   IDENTITY_DRIFT    pinned target missing / moved / renamed / replaced
   CONTENT_DRIFT     pinned target content digest changed since admission
-  SCOPE_DRIFT       (not yet implemented — see docs/research-v0.4.md)
-  TOPOLOGY_DRIFT    workspace layout violates declared family invariants
   TYPE_DRIFT        file<->dir<->symlink type transition
-  PERMISSION_DRIFT  (not yet implemented)
+  PERMISSION_DRIFT  st_mode bits changed since admission
+  TOPOLOGY_DRIFT    parent directory replaced or swapped for symlink;
+                    workspace layout violates declared family invariants
+  SCOPE_DRIFT       (not yet implemented — see docs/research-v0.4.md)
   ENVIRONMENT_DRIFT (not yet implemented)
 
 Every detected drift revokes the capability; there is no silent continue.

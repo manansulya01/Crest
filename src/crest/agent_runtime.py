@@ -572,9 +572,17 @@ class CrestRuntime:
             if not abs_target.exists():
                 return {"missing": True}
             if abs_target.is_dir():
-                return {"is_dir": True, "size": None, "sha256": None}
+                return {"is_dir": True, "size": None, "sha256": None, "mode": abs_target.stat().st_mode & 0o777}
             data = abs_target.read_bytes()
-            return {"sha256": hashlib.sha256(data).hexdigest(), "size": len(data), "is_dir": False}
+            parent = abs_target.parent
+            return {
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "size": len(data),
+                "is_dir": False,
+                "mode": abs_target.stat().st_mode & 0o777,
+                "parent_is_symlink": parent.is_symlink(),
+                "parent_resolves": str(parent.resolve()),
+            }
         except OSError:
             return None
 
@@ -625,6 +633,15 @@ class CrestRuntime:
         if not expected.get("is_dir"):
             if current.get("sha256") != expected.get("sha256") or current.get("size") != expected.get("size"):
                 return False, "CONTENT_DRIFT:pinned target content changed since admission"
+        # permission drift: any mode-bit change revokes (conservative; the
+        # evidence was collected under the admitted permission profile)
+        if expected.get("mode") is not None and current.get("mode") is not None and current["mode"] != expected["mode"]:
+            return False, f"PERMISSION_DRIFT:mode {oct(expected['mode'])} -> {oct(current['mode'])}"
+        # parent replacement/symlink swap
+        if expected.get("parent_is_symlink") is False and current.get("parent_is_symlink") is True:
+            return False, "TOPOLOGY_DRIFT:parent directory replaced by symlink"
+        if expected.get("parent_resolves") and current.get("parent_resolves") and expected["parent_resolves"] != current["parent_resolves"]:
+            return False, "TOPOLOGY_DRIFT:parent directory identity changed"
         return True, None
 
     def _dispatch(self, tool: str, operation: str, arguments: dict[str, Any], ctx: AdapterContext) -> Any:

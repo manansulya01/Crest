@@ -41,6 +41,17 @@ def test_missing_pinned_target_triggers_identity_drift(tmp_path):
     rt.close()
 
 
+def test_permission_change_triggers_permission_drift(tmp_path):
+    import os, stat
+
+    rt = _rt(tmp_path)
+    rt.verify_generalized(action_class="modify_file", scope="*", recovery=RecoveryProgram(kind="restore_from_snapshot"), family_ids=("filesystem.directory_tree",), verification_cases=2, holdout_cases=2, shift_cases=1, pinned_target="sub/a.txt")
+    os.chmod(tmp_path / "sub" / "a.txt", stat.S_IREAD)  # remove write bit
+    res = rt.execute(agent_id="a", tool="filesystem", operation="modify_file", arguments={"path": "sub/a.txt", "content": "x"})
+    assert not res.ok and "PERMISSION_DRIFT" in res.reason
+    rt.close()
+
+
 def test_unmodified_pinned_target_admits(tmp_path):
     rt = _rt(tmp_path)
     rt.verify_generalized(action_class="modify_file", scope="*", recovery=RecoveryProgram(kind="restore_from_snapshot"), family_ids=("filesystem.directory_tree",), verification_cases=2, holdout_cases=2, shift_cases=1, pinned_target="sub/a.txt")
