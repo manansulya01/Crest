@@ -237,6 +237,9 @@ class CrestRuntime:
             # target pinning binds evidence to one concrete path so that
             # rename/move drift becomes detectable at execution time
             payload["pinned_target"] = pinned_target
+            meta = self._target_identity(pinned_target)
+            if meta is not None:
+                payload["pinned_target_meta"] = meta
         if generalization is not None:
             payload["generalization"] = {
                 "family": generalization.environment_family,
@@ -467,6 +470,15 @@ class CrestRuntime:
 
             payload_for_drift = self.store.get_receipt_payload(decision.receipt_id) if decision.receipt_id else None
             gen = (payload_for_drift or {}).get("generalization")
+            ok, why = self._check_pinned_identity(payload_for_drift, rel_target)
+            if not ok:
+                now_iso = datetime.now(timezone.utc).isoformat()
+                self._revoke_row(decision.capability_id, f"DRIFT_DETECTED:{why}", now_iso)
+                self._audit(request_id, agent_id, decision.capability_id, tool, operation, "DRIFT_DETECTED", why, {})
+                return ToolResult(ok=False, request_id=request_id, agent_id=agent_id, tool=tool, operation=operation,
+                                  reason=f"DRIFT_DETECTED:{why}", target=rel_target,
+                                  exposure_before=exposure_before, exposure_after=self.store.total_exposure(),
+                                  duration_ms=(time.perf_counter() - start) * 1000)
             if gen:
                 declared = tuple(f for f in str(gen.get("family", "")).split(",") if f)
                 requires_existing = operation in ("modify_file", "move_file", "delete_file", "delete_directory")
@@ -531,6 +543,50 @@ class CrestRuntime:
                     return ToolResult(ok=False, request_id=request_id, agent_id=agent_id, tool=tool, operation=operation, reason=f"REPROBE_FAILED:{probe_note}", target=rel_target, exposure_before=exposure_before, exposure_after=self.store.total_exposure(), duration_ms=(time.perf_counter() - start) * 1000)
 
             return ToolResult(ok=True, request_id=request_id, agent_id=agent_id, tool=tool, operation=operation, reason="EXECUTED", target=rel_target, exposure_before=exposure_before, exposure_after=self.store.total_exposure(), output=output, duration_ms=(time.perf_counter() - start) * 1000)
+
+    def _target_identity(self, rel_target: str) -> dict[str, Any] | None:
+        """Identity fingerprint of the pinned target at admission time."""
+        import hashlib
+
+        abs_target = Path(self.config.workspace_root).resolve() / rel_target
+        try:
+            if abs_target.is_symlink():
+                return {"symlink": True, "sha256": None, "size": None, "is_dir": abs_target.is_dir()}
+            if not abs_target.exists():
+                return {"missing": True}
+            if abs_target.is_dir():
+                return {"is_dir": True, "size": None, "sha256": None}
+            data = abs_target.read_bytes()
+            return {"sha256": hashlib.sha256(data).hexdigest(), "size": len(data), "is_dir": False}
+        except OSError:
+            return None
+
+    def _check_pinned_identity(self, payload: dict[str, Any] | None, rel_target: str) -> tuple[bool, str | None]:
+        """Compare the current target against the admitted fingerprint.
+
+        Catches rename/move (path missing under pinned identity), target
+        replacement (content digest change), and file<->dir type change.
+        """
+        if not payload or not payload.get("pinned_target_meta"):
+            return True, None
+        expected = payload["pinned_target_meta"]
+        current = self._target_identity(rel_target)
+        if current is None:
+            return True, None
+        if expected.get("symlink") and not current.get("symlink"):
+            return False, "TYPE_DRIFT:symlink at admission no longer symlink"
+        if not expected.get("symlink") and current.get("symlink"):
+            return False, "TYPE_DRIFT:symlink introduced at pinned target"
+        if expected.get("missing"):
+            return True, None
+        if current.get("missing"):
+            return False, "IDENTITY_DRIFT:pinned target no longer exists (moved/renamed/replaced)"
+        if expected.get("is_dir") != current.get("is_dir"):
+            return False, "TYPE_DRIFT:file/directory type changed at pinned target"
+        if not expected.get("is_dir"):
+            if current.get("sha256") != expected.get("sha256") or current.get("size") != expected.get("size"):
+                return False, "CONTENT_DRIFT:pinned target content changed since admission"
+        return True, None
 
     def _dispatch(self, tool: str, operation: str, arguments: dict[str, Any], ctx: AdapterContext) -> Any:
         if tool == "filesystem":

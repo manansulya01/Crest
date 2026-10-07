@@ -3,6 +3,17 @@
 Deterministic and narrow on purpose: V0.3 drift detection compares the
 *declared evidence family* against the structural invariants the current
 workspace satisfies. It does not claim to detect all drift.
+
+Drift taxonomy (V0.4):
+  IDENTITY_DRIFT    pinned target missing / moved / renamed / replaced
+  CONTENT_DRIFT     pinned target content digest changed since admission
+  SCOPE_DRIFT       (not yet implemented — see docs/research-v0.4.md)
+  TOPOLOGY_DRIFT    workspace layout violates declared family invariants
+  TYPE_DRIFT        file<->dir<->symlink type transition
+  PERMISSION_DRIFT  (not yet implemented)
+  ENVIRONMENT_DRIFT (not yet implemented)
+
+Every detected drift revokes the capability; there is no silent continue.
 """
 from __future__ import annotations
 

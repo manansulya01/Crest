@@ -95,6 +95,10 @@ def load(path: Path | str) -> CrestConfig:
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     if not isinstance(data, dict):
         raise ValueError("config must be a YAML mapping")
+    allowed_sections = {"workspace", "exposure", "admission", "revocation", "runtime", "shell", "state", "audit", "evidence", "statistics", "limits", "policy"}
+    unknown = set(data) - allowed_sections
+    if unknown:
+        raise ValueError(f"unknown config sections (typo or tampering): {sorted(unknown)}")
     root = Path(data.get("workspace", {}).get("root", "."))
     exposure = data.get("exposure", {})
     admission = data.get("admission", {})
