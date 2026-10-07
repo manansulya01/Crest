@@ -110,6 +110,11 @@ class CrestRuntime:
         except SecurityStateCorrupt:
             raise
         self.verifier = Verifier()
+        # Local development keys (marked as such). Production key custody is
+        # external; Crest never claims HSM/KMS guarantees.
+        from . import signing
+
+        self._signing_key = signing.ensure_dev_key(self.config.resolved_state_dir)
 
     @classmethod
     def from_config(cls, path: str | Path) -> "CrestRuntime":
@@ -219,6 +224,7 @@ class CrestRuntime:
     def _admit_from_receipt(self, receipt: CapabilityReceipt, action_class: str, scope: str, classification: str, recovery: RecoveryProgram, generalization=None, measurement=None, elapsed: float | None = None, pinned_target: str | None = None) -> dict[str, Any]:
         cap_id = f"{action_class}:{scope}"
         now = datetime.now(timezone.utc).isoformat()
+        receipt = receipt.with_metadata(policy_version=self.config.policy_version, verifier_version=Verifier.VERSION).sign_with(self._signing_key)
         payload = receipt.to_dict()
         payload["recovery_program"] = {"kind": recovery.kind, "params": dict(recovery.params or {})}
         payload["evidence_classification"] = classification
@@ -324,20 +330,42 @@ class CrestRuntime:
             # authorize a different path (rename/move drift)
             return None, "TARGET_IDENTITY_MISMATCH"
         try:
-            receipt = CapabilityReceipt.from_dict(payload)
+            receipt = CapabilityReceipt.from_payload(payload)
         except Exception:
             return None, "RECEIPT_MALFORMED"
-        if receipt.schema_version != CapabilityReceipt.create.__defaults__ and receipt.schema_version < 2:
-            # unknown/legacy schema versions are never reinterpreted
-            return None, "RECEIPT_SCHEMA_UNSUPPORTED"
+        problems = receipt.structural_problems()
+        try:
+            expired = receipt.is_expired(now)
+        except Exception:
+            expired = False
+            problems.append("MALFORMED_TIMESTAMP:expires_at")
+        if problems:
+            # an expired-but-otherwise-well-formed receipt is reported as expired
+            if expired and set(problems) <= {"EXPIRY_BEFORE_ISSUE"}:
+                return None, "RECEIPT_EXPIRED"
+            return None, f"RECEIPT_MALFORMED:{problems[0]}"
+        if expired:
+            return None, "RECEIPT_EXPIRED"
         if not receipt.is_hash_valid():
             return None, "RECEIPT_TAMPERED"
-        if receipt.is_expired(now):
-            return None, "RECEIPT_EXPIRED"
+        # authenticity: cryptographic verification happens before any authority
+        from . import signing
+
+        public = signing.load_public_key(self.config.resolved_state_dir, receipt.key_id)
+        if public is None:
+            return None, "RECEIPT_UNKNOWN_KEY"
+        if not receipt.signature_valid(public):
+            return None, "RECEIPT_BAD_SIGNATURE"
         if receipt.action_class != action_class:
             return None, "RECEIPT_ACTION_MISMATCH"
         if not scope_matches(receipt.target_scope, rel_target):
             return None, "RECEIPT_SCOPE_MISMATCH"
+        # policy binding: evidence issued under a different policy cannot
+        # silently authorize under the current one
+        if receipt.policy_version != self.config.policy_version:
+            return None, f"POLICY_DENIED:receipt policy {receipt.policy_version} != current {self.config.policy_version}"
+        if receipt.verifier_version not in (Verifier.VERSION,):
+            return None, "RECEIPT_VERIFIER_MISMATCH"
         classification = payload.get("evidence_classification", EVIDENCE_VERIFIED_FIXTURE)
         if not _evidence_allows(classification, allowed_class=self.config.min_evidence_class, allow_fixture=self.config.allow_fixture_evidence):
             return None, "EVIDENCE_CLASS_INSUFFICIENT"

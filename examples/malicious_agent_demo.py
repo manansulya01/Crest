@@ -27,6 +27,10 @@ def main() -> int:
             ("path traversal", lambda: rt.execute(agent_id="m", tool="filesystem", operation="delete_file", arguments={"path": "..\\..\\windows\\system32\\config\\SAM"})),
             # tampered receipt
             ("forged receipt", lambda: _tamper(rt)),
+            # tampered v2 timestamp field
+            ("tampered issued_at", lambda: _tamper_ts(rt)),
+            # forged signature
+            ("forged signature", lambda: _tamper_sig(rt)),
             # forked cwd outside workspace via shell
             ("shell path outside workspace", lambda: rt.execute(agent_id="m", tool="shell", operation="command", arguments={"command": "ls ..\\.."})),
             # raw shell with injection
@@ -67,6 +71,28 @@ def _tamper(rt):
         rt.store.save_receipt(receipt_ids[0], "modify_file", "*", "VERIFIED", "VERIFIED_FIXTURE", payload["issued_at"], payload["expires_at"], payload)
         res = rt.execute(agent_id="m", tool="filesystem", operation="modify_file", arguments={"path": "a.txt", "content": "x"})
         return res
+    return _AdapterBypassNoError()
+
+
+def _tamper_ts(rt):
+    receipt_ids = [r["receipt_id"] for r in rt.store.list_receipts()]
+    if receipt_ids:
+        payload = rt.store.get_receipt_payload(receipt_ids[0])
+        payload["issued_at"] = "1970-01-01T00:00:00+00:00"
+        rt.store.save_receipt(receipt_ids[0], "modify_file", "*", "VERIFIED", "VERIFIED_FIXTURE", payload["issued_at"], payload["expires_at"], payload)
+        return rt.execute(agent_id="m", tool="filesystem", operation="modify_file", arguments={"path": "a.txt", "content": "x"})
+    return _AdapterBypassNoError()
+
+
+def _tamper_sig(rt):
+    import base64, os
+
+    receipt_ids = [r["receipt_id"] for r in rt.store.list_receipts()]
+    if receipt_ids:
+        payload = rt.store.get_receipt_payload(receipt_ids[0])
+        payload["signature"] = base64.b64encode(os.urandom(64)).decode()
+        rt.store.save_receipt(receipt_ids[0], "modify_file", "*", "VERIFIED", "VERIFIED_FIXTURE", payload["issued_at"], payload["expires_at"], payload)
+        return rt.execute(agent_id="m", tool="filesystem", operation="modify_file", arguments={"path": "a.txt", "content": "x"})
     return _AdapterBypassNoError()
 
 
