@@ -16,9 +16,12 @@ crest doctor
 crest benchmark [admission|security|generalization|drift|all]
 crest report
 crest experiment {cross-distribution|ablations|exposure-sweep|confidence|drift|tables|conclusion|holdout}
+crest research reproduce [--full]
 ```
 
-Exit codes: 0 ok; 3 denied/security failure; 4 not found; argparse errors: 2.
+Exit codes: 0 ok; 3 denied/security failure; 4 not found; 2 operational
+error (invalid config, corrupt store, unknown sections — clean `ERROR:`
+message, no traceback). argparse errors: 2.
 
 Examples:
 

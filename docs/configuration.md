@@ -27,4 +27,17 @@ shell:
 ```
 
 Security invariants are hard-coded: the agent cannot change them through any
-input path; only editing this file and restarting runtime changes policy.
+input path. Unknown config sections are rejected (typo/tamper fail closed).
+
+Trust boundary (explicit):
+
+- A *running* runtime uses the `CrestConfig` it parsed at startup. Editing
+  `crest.yaml` on disk does not broaden the live session; the change takes
+  effect only on restart / new runtime.
+- Receipts are bound to `policy_version`. Changing `policy.version` in
+  crest.yaml does not silently carry old evidence forward: the next
+  admission is denied with `POLICY_DENIED` until re-verified under the new
+  policy.
+- Filesystem write access to crest.yaml and to `.crest/keys/` is *operator*
+  trust; the agent runtime assumes only that the agent cannot write them.
+  Production key custody (HSM/KMS/rotation) is external to this repository.

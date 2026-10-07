@@ -64,7 +64,8 @@ r = gw.execute(ToolRequest(agent_id="agent-1", tool="filesystem", operation="mod
   `UNVERIFIED` (fixing a V0.3 conflation).
 - **Replay protection** — revoking a capability revokes its receipt.
 - **Receipt v2** — versioned schema, canonical serialization, payload/evidence
-  digests (content integrity only; no signatures).
+  digests, Ed25519 signature over the canonical payload (dev keys in
+  `.crest/keys/`; production key custody external).
 - **Migrations** with history, crash-consistency tests, MCP-style gateway,
   secret redaction, `crest doctor` with ERROR/WARNING/INFO, `crest experiment`
   runners for every research artifact.
