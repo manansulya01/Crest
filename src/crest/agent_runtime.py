@@ -561,6 +561,28 @@ class CrestRuntime:
         except OSError:
             return None
 
+    def check_composition(self, *, steps: list[dict[str, Any]], recovery: RecoveryProgram, family_id: str = "filesystem.single_file", cases: int = 10) -> dict[str, Any]:
+        """Offline composition check: safe(A)+safe(B) does NOT imply safe(A+B).
+
+        The runtime does not assume composability; callers must verify the
+        exact sequence before relying on it. This result is evidence, not
+        admission.
+        """
+        from .composition import Step, verify_composition
+
+        result = verify_composition(
+            steps=tuple(Step(s["action_class"], s.get("params", {})) for s in steps),
+            recovery=recovery, family_id=family_id, cases=cases,
+        )
+        return {
+            "status": result.status.value,
+            "cases": result.cases,
+            "recovered": result.recovered,
+            "success_rate": result.success_rate,
+            "component_success": result.component_success,
+            "failure_mode": result.failure_mode,
+        }
+
     def _check_pinned_identity(self, payload: dict[str, Any] | None, rel_target: str) -> tuple[bool, str | None]:
         """Compare the current target against the admitted fingerprint.
 

@@ -92,6 +92,11 @@ def main(argv: list[str] | None = None) -> int:
     exp = sub.add_parser("experiment", help="run a research experiment")
     exp.add_argument("name", choices=["cross-distribution", "ablations", "exposure-sweep", "confidence", "drift", "tables", "conclusion", "holdout"])
 
+    research = sub.add_parser("research", help="reproducible research validation")
+    research_sub = research.add_subparsers(dest="research_command")
+    rep = research_sub.add_parser("reproduce", help="run the lightweight complete research validation (--full for heavy experiments)")
+    rep.add_argument("--full", action="store_true")
+
     ver = sub.add_parser("verify-generalized", help="run cross-fixture holdout verification and admit if evidence class suffices")
     ver.add_argument("--action", required=True)
     ver.add_argument("--recovery", required=True)
@@ -113,6 +118,42 @@ def main(argv: list[str] | None = None) -> int:
         (root / ".crest").mkdir(exist_ok=True)
         print(f"initialized crest config at {cfg_path} (root={root})")
         return 0
+
+    if args.command == "research" and args.research_command == "reproduce":
+        import importlib
+
+        summary: dict[str, Any] = {}
+        conclusion = importlib.import_module("experiments.generalization.conclusion")
+        out = conclusion.evaluate()
+        summary["conclusion"] = out.get("verdict")
+        tables = importlib.import_module("experiments.generalization.tables")
+        summary["tables"] = str(tables.write_all())
+        if args.full:
+            for mod_name, fn in (("experiments.generalization.cross_distribution", "run_grid"),
+                                 ("experiments.generalization.ablations", "run_all"),
+                                 ("experiments.generalization.exposure_sweep", "run_all"),
+                                 ("experiments.generalization.confidence_sensitivity", "run_all"),
+                                 ("experiments.generalization.drift_experiment", "run")):
+                try:
+                    getattr(importlib.import_module(mod_name), fn)()
+                    summary[mod_name] = "ok"
+                except Exception as exc:
+                    summary[mod_name] = f"failed: {exc}"
+        # artifact manifest metadata
+        import subprocess
+
+        try:
+            commit = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+        except Exception:
+            commit = "unknown"
+        summary["git_commit"] = commit
+        import sys, platform, crest
+
+        summary["python"] = sys.version.split()[0]
+        summary["crest_version"] = crest.__version__
+        summary["os"] = f"{platform.system()} {platform.release()}"
+        print(json.dumps(summary, indent=2))
+        return 0 if out.get("verdict") in ("SUPPORTED", "PARTIALLY_SUPPORTED", "NOT_SUPPORTED", "INCONCLUSIVE") else 3
 
     if args.command == "experiment" and args.name in ("conclusion", "tables"):
         # These only read artifacts; no workspace config required.
