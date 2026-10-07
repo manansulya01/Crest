@@ -155,6 +155,38 @@ class Store:
         self._conn.execute("INSERT INTO exposure (amount, timestamp, action_class, target, reason) VALUES (?,?,?,?,?)", (amount, timestamp, action_class, target, reason))
         self._conn.commit()
 
+    def try_reserve_exposure(self, amount: float, limit: float, timestamp: str, action_class: str, target: str, reason: str, timeout: float = 10.0) -> bool:
+        """Atomic check-and-reserve: the ledger row is committed iff the
+        post-reservation total would remain <= limit. Uses a single
+        BEGIN IMMEDIATE transaction so concurrent processes on the same
+        state directory cannot both observe enough remaining budget —
+        SQLite serializes the writers. The reservation is never refunded by
+        later recovery success; window expiry is the only release.
+        """
+        if amount < 0:
+            raise ValueError("negative exposure")
+        busy = sqlite3.connect(str(self.db_path), check_same_thread=False, timeout=timeout)
+        try:
+            busy.execute("PRAGMA busy_timeout=%d" % int(timeout * 1000))
+            busy.execute("BEGIN IMMEDIATE")
+            total = busy.execute("SELECT COALESCE(SUM(amount),0) FROM exposure").fetchone()[0]
+            if total + amount > limit + 1e-12:
+                busy.rollback()
+                return False
+            busy.execute("INSERT INTO exposure (amount, timestamp, action_class, target, reason) VALUES (?,?,?,?,?)", (amount, timestamp, action_class, target, reason))
+            busy.commit()
+            # keep the main connection's view coherent (WAL readers see new commits)
+            self._conn.execute("SELECT 1").fetchall()
+            return True
+        except sqlite3.Error:
+            try:
+                busy.rollback()
+            except sqlite3.Error:
+                pass
+            raise
+        finally:
+            busy.close()
+
     def total_exposure(self) -> float:
         cur = self._conn.execute("SELECT COALESCE(SUM(amount),0) FROM exposure")
         return float(cur.fetchone()[0])

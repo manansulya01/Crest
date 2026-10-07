@@ -493,6 +493,16 @@ class CrestRuntime:
                                       reason=f"DRIFT_DETECTED:{report.reasons[0]}", target=rel_target,
                                       exposure_before=exposure_before, exposure_after=self.store.total_exposure(),
                                       duration_ms=(time.perf_counter() - start) * 1000)
+            # Atomic cross-process reservation: check-and-record under
+            # BEGIN IMMEDIATE. If reservation fails, deny without execution.
+            if not self.config.dry_run:
+                reserved = self.store.try_reserve_exposure(exp, self.config.e_max, datetime.now(timezone.utc).isoformat(), _operation_action(tool, operation), rel_target or "", "reserved")
+                if not reserved:
+                    self._audit(request_id, agent_id, decision.capability_id, tool, operation, "ADMISSION_DENIED", "EXPOSURE_BUDGET_EXCEEDED", {})
+                    return ToolResult(ok=False, request_id=request_id, agent_id=agent_id, tool=tool, operation=operation,
+                                      reason="EXPOSURE_BUDGET_EXCEEDED", target=rel_target,
+                                      exposure_before=self.store.total_exposure(), exposure_after=self.store.total_exposure(),
+                                      duration_ms=(time.perf_counter() - start) * 1000)
             try:
                 if self.config.dry_run:
                     output = {"dry_run": True}
@@ -519,12 +529,11 @@ class CrestRuntime:
                     ctx = AdapterContext(runtime=self, request_id=request_id, agent_id=agent_id, admitted=True, workspace_root=Path(self.config.workspace_root))
                     output = self._dispatch(tool, operation, arguments, ctx)
             except Exception as exc:
-                self.store.add_exposure(exp, datetime.now(timezone.utc).isoformat(), _operation_action(tool, operation), rel_target, f"failed execution: {exc}")
+                # the reservation is deliberately NOT refunded on failure
                 self._audit(request_id, agent_id, decision.capability_id, tool, operation, "EXECUTION_FAILED", str(exc), {})
                 return ToolResult(ok=False, request_id=request_id, agent_id=agent_id, tool=tool, operation=operation, reason=f"EXECUTION_FAILED:{exc}", target=rel_target, exposure_before=exposure_before, exposure_after=self.store.total_exposure(), duration_ms=(time.perf_counter() - start) * 1000)
 
             now_iso = datetime.now(timezone.utc).isoformat()
-            self.store.add_exposure(exp, now_iso, _operation_action(tool, operation), rel_target, "execution")
             row.state = CapabilityState.ACTIVE.value
             row.updated_at = now_iso
             self.store.upsert_capability(row)
