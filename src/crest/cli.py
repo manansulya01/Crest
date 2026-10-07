@@ -155,6 +155,21 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(summary, indent=2))
         return 0 if out.get("verdict") in ("SUPPORTED", "PARTIALLY_SUPPORTED", "NOT_SUPPORTED", "INCONCLUSIVE") else 3
 
+    try:
+        return _dispatch(args, p)
+    except (ValueError, KeyError) as exc:
+        print(f"ERROR: {exc}")
+        return 2
+    except Exception as exc:  # expected operational failures surface cleanly
+        from .store import SecurityStateCorrupt
+
+        if isinstance(exc, (SecurityStateCorrupt, OSError)):
+            print(f"ERROR: {type(exc).__name__}: {exc}")
+            return 2
+        raise
+
+
+def _dispatch(args, p) -> int:
     if args.command == "experiment" and args.name in ("conclusion", "tables"):
         # These only read artifacts; no workspace config required.
         import importlib
