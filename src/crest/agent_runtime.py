@@ -114,7 +114,8 @@ class CrestRuntime:
         # external; Crest never claims HSM/KMS guarantees.
         from . import signing
 
-        self._signing_key = signing.ensure_dev_key(self.config.resolved_state_dir)
+        self._key_provider = signing.DevKeyProvider(self.config.resolved_state_dir)
+        self._signing_key = signing.ensure_dev_key(self.config.resolved_state_dir)  # legacy alias
 
     @classmethod
     def from_config(cls, path: str | Path) -> "CrestRuntime":
@@ -224,7 +225,12 @@ class CrestRuntime:
     def _admit_from_receipt(self, receipt: CapabilityReceipt, action_class: str, scope: str, classification: str, recovery: RecoveryProgram, generalization=None, measurement=None, elapsed: float | None = None, pinned_target: str | None = None) -> dict[str, Any]:
         cap_id = f"{action_class}:{scope}"
         now = datetime.now(timezone.utc).isoformat()
-        receipt = receipt.with_metadata(policy_version=self.config.policy_version, verifier_version=Verifier.VERSION).sign_with(self._signing_key)
+        receipt = receipt.with_metadata(policy_version=self.config.policy_version, verifier_version=Verifier.VERSION)
+        key_id, signature_b64 = self._key_provider.sign(receipt.recompute_payload_digest())
+        import dataclasses as _dc
+        from . import signing as _sig
+
+        receipt = _dc.replace(receipt, signature=signature_b64, signature_algorithm=_sig.ALGORITHM, key_id=key_id)
         payload = receipt.to_dict()
         payload["recovery_program"] = {"kind": recovery.kind, "params": dict(recovery.params or {})}
         payload["evidence_classification"] = classification
@@ -354,7 +360,9 @@ class CrestRuntime:
         # authenticity: cryptographic verification happens before any authority
         from . import signing
 
-        public = signing.load_public_key(self.config.resolved_state_dir, receipt.key_id)
+        public = self._key_provider.get_public_key(receipt.key_id)
+        if self._key_provider.is_revoked(receipt.key_id):
+            return None, "RECEIPT_KEY_REVOKED"
         if public is None:
             return None, "RECEIPT_UNKNOWN_KEY"
         if not receipt.signature_valid(public):
