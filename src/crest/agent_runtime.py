@@ -468,7 +468,25 @@ class CrestRuntime:
                 return ToolResult(ok=False, request_id=request_id, agent_id=agent_id, tool=tool, operation=operation, reason=decision.reason, target=decision.target, exposure_before=decision.exposure_before, exposure_after=decision.exposure_after, duration_ms=(time.perf_counter() - start) * 1000)
 
             row = self.store.get_capability(decision.capability_id)
+            if row is None:
+                # This should not happen, but if it does, we fail closed.
+                now_iso = datetime.now(timezone.utc).isoformat()
+                self._revoke_row(decision.capability_id, "CAPABILITY_NOT_FOUND", now_iso)
+                self._audit(request_id, agent_id, decision.capability_id, tool, operation, "EXECUTION_ERROR", "capability not found", {})
+                return ToolResult(ok=False, request_id=request_id, agent_id=agent_id, tool=tool, operation=operation,
+                                  reason="CAPABILITY_NOT_FOUND", target=rel_target,
+                                  exposure_before=exposure_before, exposure_after=self.store.total_exposure(),
+                                  duration_ms=(time.perf_counter() - start) * 1000)
             rel_target = decision.target
+            # SCOPE_DRIFT: target must still be within the admitted scope
+            if not scope_matches(row.scope, rel_target):
+                now_iso = datetime.now(timezone.utc).isoformat()
+                self._revoke_row(decision.capability_id, f"SCOPE_DRIFT:target {rel_target} not in scope {row.scope}", now_iso)
+                self._audit(request_id, agent_id, decision.capability_id, tool, operation, "DRIFT_DETECTED", f"SCOPE_DRIFT:target {rel_target} not in scope {row.scope}", {})
+                return ToolResult(ok=False, request_id=request_id, agent_id=agent_id, tool=tool, operation=operation,
+                                  reason=f"SCOPE_DRIFT:target {rel_target} not in scope {row.scope}", target=rel_target,
+                                  exposure_before=exposure_before, exposure_after=self.store.total_exposure(),
+                                  duration_ms=(time.perf_counter() - start) * 1000)
             exp = float(arguments.get("exposure", DEFAULT_EXPOSURE.get((tool, operation), 0.2)))
             exposure_before = self.store.total_exposure()
             self._audit(request_id, agent_id, decision.capability_id, tool, operation, "EXECUTION_STARTED", None, {"target": rel_target})
