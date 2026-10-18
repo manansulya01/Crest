@@ -7,3 +7,8 @@ __pycache__/
 dist/
 build/
 experiments/results/*.jsonl
+# Crest local runtime state and signing keys
+.crest/
+crest.yaml
+# Generated reproducibility manifests (timestamped run output)
+reproduce_manifests/

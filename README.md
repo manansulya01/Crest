@@ -24,6 +24,7 @@ agent request -> CrestRuntime.check/execute -> admission decision -> adapter (fs
 - Append-only audit and SQLite persistence
 - Revocation that is immediate; re-admission requires fresh verification
 - Fail-closed on corrupt state, unknown tools, scope violations, budget exhaustion
+- Scope drift detection (target must remain within admitted scope)
 
 ## Install / first run
 

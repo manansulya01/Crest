@@ -468,6 +468,8 @@ class CrestRuntime:
                 return ToolResult(ok=False, request_id=request_id, agent_id=agent_id, tool=tool, operation=operation, reason=decision.reason, target=decision.target, exposure_before=decision.exposure_before, exposure_after=decision.exposure_after, duration_ms=(time.perf_counter() - start) * 1000)
 
             row = self.store.get_capability(decision.capability_id)
+            rel_target = decision.target
+            exposure_before = self.store.total_exposure()
             if row is None:
                 # This should not happen, but if it does, we fail closed.
                 now_iso = datetime.now(timezone.utc).isoformat()
@@ -477,7 +479,6 @@ class CrestRuntime:
                                   reason="CAPABILITY_NOT_FOUND", target=rel_target,
                                   exposure_before=exposure_before, exposure_after=self.store.total_exposure(),
                                   duration_ms=(time.perf_counter() - start) * 1000)
-            rel_target = decision.target
             # SCOPE_DRIFT: target must still be within the admitted scope
             if not scope_matches(row.scope, rel_target):
                 now_iso = datetime.now(timezone.utc).isoformat()
@@ -488,7 +489,6 @@ class CrestRuntime:
                                   exposure_before=exposure_before, exposure_after=self.store.total_exposure(),
                                   duration_ms=(time.perf_counter() - start) * 1000)
             exp = float(arguments.get("exposure", DEFAULT_EXPOSURE.get((tool, operation), 0.2)))
-            exposure_before = self.store.total_exposure()
             self._audit(request_id, agent_id, decision.capability_id, tool, operation, "EXECUTION_STARTED", None, {"target": rel_target})
 
             workspace = Workspace(Path(self.config.workspace_root))
@@ -546,7 +546,19 @@ class CrestRuntime:
                                                   reason=f"TOCTOU_WORKSPACE_VIOLATION:{exc}", target=rel_target,
                                                   exposure_before=exposure_before, exposure_after=self.store.total_exposure(),
                                                   duration_ms=(time.perf_counter() - start) * 1000)
-                            if not scope_matches(self.store.get_capability(decision.capability_id).scope, relative_posix(self.config.workspace_root, fresh)):
+                            recheck = self.store.get_capability(decision.capability_id)
+                            if recheck is None:
+                                # same fail-closed rule as the pre-execution
+                                # re-read: a capability that vanished in the
+                                # check->use window must not authorize use
+                                now_iso = datetime.now(timezone.utc).isoformat()
+                                self._revoke_row(decision.capability_id, "CAPABILITY_NOT_FOUND", now_iso)
+                                self._audit(request_id, agent_id, decision.capability_id, tool, operation, "EXECUTION_ERROR", "capability not found", {})
+                                return ToolResult(ok=False, request_id=request_id, agent_id=agent_id, tool=tool, operation=operation,
+                                                  reason="CAPABILITY_NOT_FOUND", target=rel_target,
+                                                  exposure_before=exposure_before, exposure_after=self.store.total_exposure(),
+                                                  duration_ms=(time.perf_counter() - start) * 1000)
+                            if not scope_matches(recheck.scope, relative_posix(self.config.workspace_root, fresh)):
                                 self._revoke_row(decision.capability_id, "TOCTOU_SCOPE_VIOLATION", datetime.now(timezone.utc).isoformat())
                                 return ToolResult(ok=False, request_id=request_id, agent_id=agent_id, tool=tool, operation=operation,
                                                   reason="TOCTOU_SCOPE_VIOLATION", target=rel_target,
