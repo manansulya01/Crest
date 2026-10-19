@@ -1,5 +1,22 @@
-# Default V0.4 research experiment configuration.
-# All artifacts under experiments/results/ were produced with this setup.
+# Canonical V0.4 research experiment configuration.
+#
+# This file is the single source of truth for the reported experiment
+# parameters. `experiments/generalization/config.py` loads it; module
+# defaults, the CLI (`crest research reproduce`), and the provenance checks
+# in `experiments/generalization/tables.py` all resolve their parameters
+# through that loader, so the values below cannot silently diverge across
+# code, tests, and documentation.
+#
+# Canonical means: the committed artifacts under experiments/tables/ were
+# produced with these parameters (see docs/research-v0.4.md, "Reproducing
+# this document"). Changing a value here changes the canonical provenance;
+# it does not retroactively change the committed tables.
+config_version: 1
+
+# Production evidence policy defaults. These mirror `crest.policy`
+# (EvidencePolicy/FamilyPolicy/GeneralPolicy/StatisticsPolicy) and are
+# checked against it by tests/unit/test_experiment_config.py so drift
+# between this documentation and the runtime defaults fails a test.
 evidence:
   fixture:
     requires_exact_scope: true
@@ -17,7 +34,15 @@ statistics:
   minimum_samples:
     family: 20
     general: 50
+
 experiments:
+  # Experimental policy shared by the ablation and confidence-sensitivity
+  # arms: minimum case counts scale with n and the failure bound is
+  # deliberately looser than the production default above. This is an
+  # experimental configuration, not the production policy; the committed
+  # tables classify under it.
+  maximum_failure_upper_bound: 0.20
+  seed_base: 0
   ablations:
     n_per_measurement: 20
     actions: [delete_file, modify_file]
@@ -28,9 +53,12 @@ experiments:
   confidence_sensitivity:
     levels: [0.90, 0.95, 0.99, 0.999]
     n_per_measurement: 6
+    actions: [delete_file]
   cross_distribution:
     n_per_distribution: 8
+    recoveries: [restore_from_snapshot, overfit_distractor_gate, noop_fault]
   drift:
+    cases_per_class: 3
     drift_classes:
       - target_moved
       - target_renamed
@@ -41,5 +69,9 @@ experiments:
       - symlink_introduced
       - git_state_changed
 notes: |
-  Seeds are fixed for reproducibility. Every run prints and records its seed;
-  `crest experiment <name> --seed random` is supported for stress runs.
+  Seeds are fixed constants in the experiment code (recorded per run in the
+  JSONL provenance records); repeated runs with the same configuration are
+  deterministic apart from wall-clock timing fields. A random-seed stress
+  mode is NOT implemented. `crest research reproduce --full --samples N`
+  overrides the per-arm sample count; such runs are marked non-canonical and
+  do not regenerate the canonical tables.

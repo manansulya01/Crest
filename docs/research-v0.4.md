@@ -56,9 +56,43 @@ nonzero bound; therefore small n cannot produce strong classes.
   independent).
 - Distributions: IN_DISTRIBUTION, PARAMETER_SHIFT, STRUCTURAL_SHIFT,
   ADVERSARIAL_SHIFT, COMPOSITION_SHIFT, OUT_OF_FAMILY.
-- n = 20 per arm in the reported ablation; seeds recorded in JSONL.
 - Baseline: fixture-only evidence (V0.3 policy). Arms: fixture-only, family,
   generalized.
+
+### Canonical configuration
+
+The reported artifacts are produced with one declared configuration,
+`experiments/configs/experiment.yaml`, loaded through
+`experiments/generalization/config.py`. Experiment defaults, the CLI, and
+the table-provenance checks resolve their parameters from that loader, so
+the reproduction pipeline cannot silently run at different parameters than
+the reported ones. (The V0.5 audit found exactly that defect: the CLI's
+full reproduction defaulted to n=10 while the reported ablation was
+generated at n=20.)
+
+| experiment | canonical parameter | value |
+|---|---|---|
+| ablations | n per measurement | 20 |
+| cross-distribution | samples per distribution | 8 |
+| confidence sensitivity | n per measurement | 6, confidence levels 0.90/0.95/0.99/0.999 |
+| exposure sweep | E_max values | 0.1 / 0.25 / 0.5 / 1.0 |
+| drift | cases per class | 3 (8 classes -> 24 outcomes) |
+
+The ablation and confidence arms classify under an *experimental* policy
+scaled to n (minimum verification/holdout cases = n, minimum total samples
+= 2n, failure upper bound 0.20); this is deliberately looser than the
+production policy documented in the same file (family bound 0.05, general
+bound 0.01), which remains the runtime default. Canonical is a provenance
+statement — these are the parameters the committed tables were produced
+with — not a claim that they are statistically optimal. Sample counts (and,
+where used, seeds) are recorded per run in the JSONL provenance records;
+seeds are fixed constants.
+
+The committed `experiments/tables/*` files predate the generated provenance
+header and were not regenerated in the 2026-10-19 reconciliation pass. A
+canonical `--full` run rewrites them with that header; because wall-clock
+timing columns are measured per run, exact table bytes are not portable
+across runs or machines (see "Known nondeterminism").
 
 ## Results (measured)
 
@@ -99,6 +133,76 @@ unimplemented and are reported as such.
 
 Composition (`crest.composition`): single-step and modify-then-move sequences
 verified with full-snapshot recovery; composition is not assumed anywhere.
+
+## Reproducing this document
+
+From the repository root with the source tree importable:
+
+```powershell
+$env:PYTHONPATH="src"                            # plus the repository root for `experiments`
+crest research reproduce                         # quick: verify the stored results; writes no artifacts
+crest research reproduce --full                  # canonical: run experiments at canonical parameters,
+                                                 # evaluate the conclusion, regenerate experiments/tables/*
+crest research reproduce --full --samples 4      # explicit override: n=4, marked non-canonical,
+                                                 # never replaces the canonical tables
+```
+
+Semantics:
+
+- Quick mode evaluates the conclusion from the stored JSONL results and
+  records their hashes and recorded configuration in the manifest. It never
+  writes research artifacts and cannot be mistaken for a canonical run: the
+  manifest records the canonical configuration, while
+  `conclusion_details.data_config` records the sample count found in the
+  stored data (for example, 10 for the pre-reconciliation local results vs
+  the canonical 20).
+- Full mode runs every experiment first, then the conclusion, then the
+  tables, so the artifacts describe the results of that same run. (Before
+  this was fixed, `--full` regenerated tables from the *previous* run's
+  results and then overwrote those results.)
+- `--samples` is valid only with `--full`. Any explicit override is marked
+  non-canonical, even if it equals the canonical value; canonical evidence
+  requires the declared configuration rather than a command line that mimics
+  it.
+- Tables are regenerated only by a canonical full run whose experiments all
+  succeeded. Reduced/overridden runs and failed runs skip table regeneration
+  and say so in the manifest. `crest experiment tables` refuses to
+  regenerate canonical tables from non-canonical stored results unless
+  `--allow-noncanonical` is passed explicitly.
+- Table replacement is validated and staged: every table is rendered and
+  validated in memory, staged in a temporary directory under the target,
+  and only then moved into place; generation or validation failures leave
+  the previous artifacts untouched, and a replacement failure rolls back
+  files already replaced. Generated Markdown tables carry a provenance
+  comment with the schema version, the canonical configuration digest, and
+  the sha256 of each source JSONL file.
+- `crest experiment <name>` runs a single experiment at its canonical
+  parameters; per-module `--n` / `--cases` flags override explicitly.
+
+What a reproduction manifest records (new file per run under
+`reproduce_manifests/`, ignored by git):
+
+- `experiment_config`: canonical vs CLI override, sample count, canonical
+  flag, failure bound, and the configuration digest (sha256 over the
+  normalized canonical parameters — comments and formatting do not change
+  it; any parameter that affects the experiments does).
+- `sources`: sha256 and size of each result file the conclusion and tables
+  consumed.
+- `config`: sha256 of the runtime `crest.yaml` selected by the CLI.
+- `git_commit`, `working_tree_dirty`, tool versions, and run timestamps.
+- `result_digest`: sha256 over the conclusion verdict and criteria (with
+  volatile evaluation timestamps normalized out), the experiment
+  configuration, the source hashes, the written table hashes, experiment
+  statuses, and failures. It is stable for repeated runs over identical
+  stored results (verified), and it changes when knobs, inputs, or outputs
+  change. It does not cover manifest timestamps or machine-specific
+  metadata.
+
+Known nondeterminism: row-level `verification_seconds` and drift latencies
+are wall-clock measurements, so regenerated tables are byte-stable only up
+to those timing columns, and a full run's digest varies with them.
+Classification columns, sample counts, and the hashes of the inputs are
+deterministic (fixed seeds).
 
 ## Baselines
 

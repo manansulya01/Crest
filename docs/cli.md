@@ -16,12 +16,21 @@ crest doctor
 crest benchmark [admission|security|generalization|drift|all]
 crest report
 crest experiment {cross-distribution|ablations|exposure-sweep|confidence|drift|tables|conclusion|holdout}
-crest research reproduce [--full]
+crest research reproduce [--full] [--samples N]
 ```
 
 Exit codes: 0 ok; 3 denied/security failure; 4 not found; 2 operational
 error (invalid config, corrupt store, unknown sections — clean `ERROR:`
 message, no traceback). argparse errors: 2.
+
+`research reproduce` reports execution success (0) or operational failure
+(2); the scientific verdict is reported separately in its manifest. Quick
+mode never writes research artifacts; `--full` regenerates
+`experiments/tables/*` only for canonical runs whose experiments all
+succeeded. `--samples N` requires `--full`, marks the run non-canonical (even
+when N equals the canonical value), and can never replace the canonical
+tables. Canonical parameters, digest coverage, and provenance details are
+documented in `docs/research-v0.4.md`.
 
 Examples:
 

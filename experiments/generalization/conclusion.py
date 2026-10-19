@@ -19,6 +19,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .config import canonical
+
 RESULTS = Path(__file__).resolve().parents[1] / "results"
 
 SUPPORTED = "SUPPORTED"
@@ -34,9 +36,16 @@ def _load(name: str) -> list[dict[str, Any]]:
     return [json.loads(line) for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def ablation_rows() -> list[dict[str, Any]]:
+def ablation_record() -> dict[str, Any] | None:
     rows = _load("ablations.jsonl")
-    return rows[0]["results"] if rows and "results" in rows[0] else rows
+    return rows[0] if rows else None
+
+
+def ablation_rows() -> list[dict[str, Any]]:
+    rec = ablation_record()
+    if rec is None:
+        return []
+    return rec["results"] if "results" in rec else [rec]
 
 
 def cross_distribution_rows() -> list[dict[str, Any]]:
@@ -44,9 +53,21 @@ def cross_distribution_rows() -> list[dict[str, Any]]:
 
 
 def evaluate() -> dict[str, Any]:
+    rec = ablation_record()
     ab = ablation_rows()
     if not ab:
         return {"verdict": INCONCLUSIVE, "reason": "no ablation results recorded", "criteria": {}}
+
+    cfg = canonical()
+    recorded = (rec or {}).get("config") or {}
+    data_config = {
+        "source": "ablations.jsonl",
+        "samples": recorded.get("cases_per_measurement"),
+        "canonical": recorded.get("canonical"),
+        "canonical_samples": cfg.samples,
+        "maximum_failure_upper_bound": recorded.get("maximum_failure_upper_bound"),
+        "config_digest": recorded.get("config_digest"),
+    }
 
     def subset(mode: str) -> list[dict[str, Any]]:
         return [r for r in ab if r["mode"] == mode]
@@ -103,10 +124,20 @@ def evaluate() -> dict[str, Any]:
         verdict = INCONCLUSIVE
         reason = "Insufficient measurements to evaluate the criteria."
 
+    c8 = criteria["C8_honest_recovery_reaches_family_or_general"]
+    if not c8 and verdict in (SUPPORTED, PARTIALLY):
+        reason += (
+            " Caveat: no honest-recovery case reached VERIFIED_FAMILY or "
+            "VERIFIED_GENERAL at this sample size (C8 false), so the demonstrated "
+            "admission is fixture-grade; run `crest research reproduce --full` "
+            "with the canonical configuration for class-complete evidence."
+        )
+
     return {
         "verdict": verdict,
         "reason": reason,
         "criteria": criteria,
+        "data_config": data_config,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
 

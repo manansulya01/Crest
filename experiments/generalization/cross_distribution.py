@@ -37,7 +37,12 @@ from crest.actions import ACTIONS
 from crest.recovery import RecoveryContext, RecoveryProgram, get_handler
 from crest.workspace import Workspace
 
+from .config import canonical
+
 RESULTS_DIR = Path(__file__).resolve().parents[1] / "results"
+
+# measure() sample-count keywords, mapped to the metric names they control.
+MEASURE_SAMPLE_KEYS = ("train_n", "verify_n", "iid_n", "level2_n", "level3_n", "shift_n")
 
 
 def _git(args: list[str]) -> str:
@@ -76,7 +81,41 @@ def _trial(action_class: str, recovery: RecoveryProgram, build_fixture, family_i
         ws.cleanup()
 
 
-def measure(action_class: str, family_id: str, recovery_kind: str, *, train_n=10, verify_n=10, iid_n=10, level2_n=10, level3_n=10, shift_n=10, seed_base=0) -> dict[str, Any]:
+def resolve_samples(**overrides: Any) -> dict[str, int]:
+    """Resolve measure() sample counts; None (or absent) means canonical."""
+    unknown = sorted(set(overrides) - set(MEASURE_SAMPLE_KEYS))
+    if unknown:
+        raise TypeError(
+            "unexpected measurement keyword(s): " + ", ".join(unknown)
+        )
+    cfg = canonical()
+    return {
+        key: (
+            cfg.cross_distribution_samples
+            if overrides.get(key) is None
+            else int(overrides[key])
+        )
+        for key in MEASURE_SAMPLE_KEYS
+    }
+
+
+def measure(action_class: str, family_id: str, recovery_kind: str, *, train_n=None, verify_n=None, iid_n=None, level2_n=None, level3_n=None, shift_n=None, seed_base=None) -> dict[str, Any]:
+    resolved = resolve_samples(
+        train_n=train_n,
+        verify_n=verify_n,
+        iid_n=iid_n,
+        level2_n=level2_n,
+        level3_n=level3_n,
+        shift_n=shift_n,
+    )
+    train_n = resolved["train_n"]
+    verify_n = resolved["verify_n"]
+    iid_n = resolved["iid_n"]
+    level2_n = resolved["level2_n"]
+    level3_n = resolved["level3_n"]
+    shift_n = resolved["shift_n"]
+    if seed_base is None:
+        seed_base = canonical().seed_base
     recovery = RecoveryProgram(kind=recovery_kind)
     metrics: dict[str, Any] = {}
     for name, n, builder, dist in (
@@ -125,14 +164,48 @@ class ExperimentRecord:
         return json.dumps(dataclasses.asdict(self), sort_keys=True)
 
 
-def run_grid(actions=("delete_file", "modify_file"), families=("filesystem.single_file", "filesystem.directory_tree"),
-             recoveries=("restore_from_snapshot", "overfit_distractor_gate", "noop_fault"), **kw) -> list[ExperimentRecord]:
+def run_grid(actions=None, families=None, recoveries=None, *, samples: int | None = None,
+             seed_base: int | None = None, **overrides) -> list[ExperimentRecord]:
+    cfg = canonical()
+    actions = cfg.actions if actions is None else tuple(actions)
+    families = cfg.families if families is None else tuple(families)
+    recoveries = (
+        cfg.cross_distribution_recoveries if recoveries is None else tuple(recoveries)
+    )
+    if samples is not None and overrides:
+        raise ValueError(
+            "pass either samples= (uniform sample count) or per-distribution "
+            "*_n overrides, not both"
+        )
+    resolved = resolve_samples(**overrides)
+    if samples is not None:
+        resolved = {key: int(samples) for key in MEASURE_SAMPLE_KEYS}
+    seed_base = cfg.seed_base if seed_base is None else int(seed_base)
+
+    record_samples = {
+        "training": resolved["train_n"],
+        "verification": resolved["verify_n"],
+        "iid_holdout": resolved["iid_n"],
+        "level2_holdout": resolved["level2_n"],
+        "level3_holdout": resolved["level3_n"],
+        "structural_shift": resolved["shift_n"],
+        "parameter_shift": resolved["shift_n"],
+        "adversarial_shift": resolved["shift_n"],
+    }
+    is_canonical = (
+        actions == cfg.actions
+        and families == cfg.families
+        and recoveries == cfg.cross_distribution_recoveries
+        and all(value == cfg.cross_distribution_samples for value in resolved.values())
+        and seed_base == cfg.seed_base
+    )
+
     records: list[ExperimentRecord] = []
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     for action in actions:
         for family in families:
             for kind in recoveries:
-                dist = measure(action, family, kind, **kw)
+                dist = measure(action, family, kind, seed_base=seed_base, **resolved)
                 rec = ExperimentRecord(
                     experiment_id="",
                     timestamp=datetime.now(timezone.utc).isoformat(),
@@ -142,12 +215,18 @@ def run_grid(actions=("delete_file", "modify_file"), families=("filesystem.singl
                     python_version=sys.version.split()[0],
                     os=f"{platform.system()} {platform.release()}",
                     verifier_version=VERIFIER_VERSION,
-                    seed_base=kw.get("seed_base", 0),
+                    seed_base=seed_base,
                     action=action,
                     family=family,
                     recovery_kind=kind,
                     distributions=dist,
-                    config={"generators": ["train:fixtures.generate", "holdout:holdout_gen.build"]},
+                    config={
+                        "generators": ["train:fixtures.generate", "holdout:holdout_gen.build"],
+                        "samples_per_distribution": record_samples,
+                        "seed_base": seed_base,
+                        "canonical": is_canonical,
+                        "config_digest": cfg.digest(),
+                    },
                 )
                 records.append(rec)
                 print(f"{action:12s} {family:28s} {kind:24s} " +
@@ -164,7 +243,7 @@ if __name__ == "__main__":
     import argparse
 
     p = argparse.ArgumentParser()
-    p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--n", type=int, default=10)
+    p.add_argument("--seed", type=int, default=None, help="seed base (default: canonical configuration)")
+    p.add_argument("--n", type=int, default=None, help="samples per distribution (default: canonical configuration)")
     args = p.parse_args()
-    run_grid(train_n=args.n, verify_n=args.n, iid_n=args.n, level2_n=args.n, level3_n=args.n, shift_n=args.n, seed_base=args.seed)
+    run_grid(samples=args.n, seed_base=args.seed)

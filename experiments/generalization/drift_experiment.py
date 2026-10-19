@@ -23,6 +23,8 @@ from crest.drift import detect
 from crest.recovery import RecoveryProgram
 from crest.workspace import Workspace
 
+from .config import canonical
+
 RESULTS = Path(__file__).resolve().parents[1] / "results"
 
 
@@ -60,7 +62,10 @@ def _scenario(tmp: Path, drift: DriftClass):
     return ws
 
 
-def run(cases: int = 5) -> list[DriftOutcome]:
+def run(cases: int | None = None) -> list[DriftOutcome]:
+    cfg = canonical()
+    if cases is None:
+        cases = cfg.drift_cases_per_class
     outcomes: list[DriftOutcome] = []
     for drift in DriftClass:
         for i in range(cases):
@@ -104,6 +109,19 @@ def run(cases: int = 5) -> list[DriftOutcome]:
                 )
             finally:
                 shutil.rmtree(tmp, ignore_errors=True)
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    out = RESULTS / "drift.jsonl"
+    with out.open("w", encoding="utf-8") as fh:
+        fh.write(json.dumps({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "cases_per_class": cases,
+            "drift_classes": [c.value for c in DriftClass],
+            "canonical": cases == cfg.drift_cases_per_class,
+            "config_digest": cfg.digest(),
+            "summary": summarize(outcomes),
+            "outcomes": [dataclasses.asdict(o) for o in outcomes],
+        }, sort_keys=True) + "\n")
+    print(f"wrote {out}")
     return outcomes
 
 
@@ -123,13 +141,9 @@ if __name__ == "__main__":
     import argparse
 
     p = argparse.ArgumentParser()
-    p.add_argument("--cases", type=int, default=5)
+    p.add_argument("--cases", type=int, default=None, help="cases per drift class (default: canonical configuration)")
     args = p.parse_args()
     outs = run(args.cases)
     for o in outs:
         print(f"{o.drift_class:32s} detected={o.detected} impl={o.implementation} reason={o.detection_reason[:60]}")
     print(json.dumps(summarize(outs), indent=2))
-    RESULTS.mkdir(parents=True, exist_ok=True)
-    with (RESULTS / "drift.jsonl").open("w", encoding="utf-8") as fh:
-        fh.write(json.dumps({"timestamp": datetime.now(timezone.utc).isoformat(), "summary": summarize(outs),
-                             "outcomes": [dataclasses.asdict(o) for o in outs]}, sort_keys=True) + "\n")

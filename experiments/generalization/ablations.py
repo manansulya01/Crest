@@ -35,6 +35,8 @@ from crest.policy import EvidencePolicy
 from crest.recovery import RecoveryProgram, get_handler
 from crest.generalization import _trial
 
+from .config import canonical
+
 RESULTS = Path(__file__).resolve().parents[1] / "results"
 
 MODES = ("fixture_only", "family_evidence", "generalized_evidence")
@@ -48,13 +50,17 @@ def _git(args: list[str]) -> str:
         return "unknown"
 
 
-def _policy_for_mode(mode: str, n: int = 10) -> EvidencePolicy:
+def _policy_for_mode(mode: str, n: int | None = None) -> EvidencePolicy:
+    cfg = canonical()
+    if n is None:
+        n = cfg.samples
     base = EvidencePolicy()
     # Minimum samples and bounds are scaled to the experiment sample size so
     # the three modes are comparable at this n. The *default* production
-    # policy is far stricter; this is an experimental configuration.
-    family = dataclasses.replace(base.family, minimum_holdout_cases=n, minimum_verification_cases=n, maximum_failure_upper_bound=0.20)
-    general = dataclasses.replace(base.general, minimum_holdout_cases=n, minimum_shift_distributions=3, maximum_failure_upper_bound=0.20)
+    # policy is far stricter; this is an experimental configuration whose
+    # parameters are declared in experiments/configs/experiment.yaml.
+    family = dataclasses.replace(base.family, minimum_holdout_cases=n, minimum_verification_cases=n, maximum_failure_upper_bound=cfg.maximum_failure_upper_bound)
+    general = dataclasses.replace(base.general, minimum_holdout_cases=n, minimum_shift_distributions=3, maximum_failure_upper_bound=cfg.maximum_failure_upper_bound)
     stats = dataclasses.replace(base.statistics, minimum_samples_family=2 * n, minimum_samples_general=2 * n)
     if mode == "fixture_only":
         return dataclasses.replace(base, family=dataclasses.replace(family, minimum_holdout_cases=0, minimum_verification_cases=0),
@@ -65,7 +71,9 @@ def _policy_for_mode(mode: str, n: int = 10) -> EvidencePolicy:
     return dataclasses.replace(base, family=family, general=general, statistics=stats)
 
 
-def evaluate_mode(mode: str, action: str, recovery_kind: str, family_id: str, *, n=10) -> dict[str, Any]:
+def evaluate_mode(mode: str, action: str, recovery_kind: str, family_id: str, *, n: int | None = None) -> dict[str, Any]:
+    if n is None:
+        n = canonical().samples
     recovery = RecoveryProgram(kind=recovery_kind)
     policy = _policy_for_mode(mode, n)
     if mode == "fixture_only":
@@ -139,7 +147,16 @@ class AblationRecord:
         return json.dumps(dataclasses.asdict(self), sort_keys=True)
 
 
-def run_all(actions=("delete_file", "modify_file"), families=("filesystem.single_file", "filesystem.directory_tree"), recoveries=RECOVERIES, n: int = 10) -> AblationRecord:
+def run_all(actions=None, families=None, recoveries=None, n: int | None = None) -> AblationRecord:
+    cfg = canonical()
+    if actions is None:
+        actions = cfg.actions
+    if families is None:
+        families = cfg.families
+    if recoveries is None:
+        recoveries = cfg.recoveries
+    if n is None:
+        n = cfg.samples
     results: list[dict[str, Any]] = []
     for mode in MODES:
         for action in actions:
@@ -158,7 +175,22 @@ def run_all(actions=("delete_file", "modify_file"), families=("filesystem.single
         python=sys.version.split()[0],
         os=f"{platform.system()} {platform.release()}",
         results=results,
-        config={"cases_per_measurement": n, "modes": list(MODES)},
+        config={
+            "cases_per_measurement": n,
+            "maximum_failure_upper_bound": cfg.maximum_failure_upper_bound,
+            "modes": list(MODES),
+            "actions": list(actions),
+            "families": list(families),
+            "recoveries": list(recoveries),
+            "seed_bases": {"verification_fixtures": 1000, "evaluation": 70000, "shift": 80000},
+            "canonical": (
+                tuple(actions) == cfg.actions
+                and tuple(families) == cfg.families
+                and tuple(recoveries) == cfg.recoveries
+                and n == cfg.samples
+            ),
+            "config_digest": cfg.digest(),
+        },
     )
     RESULTS.mkdir(parents=True, exist_ok=True)
     out = RESULTS / "ablations.jsonl"
@@ -172,11 +204,9 @@ if __name__ == "__main__":
     import argparse
 
     p = argparse.ArgumentParser()
-    p.add_argument("--n", type=int, default=10)
+    p.add_argument("--n", type=int, default=None, help="per-arm sample count (default: canonical configuration)")
     p.add_argument("--seed", type=str, default="0", help="numeric seed or 'random'")
     args = p.parse_args()
     if args.seed == "random":
-        import random as _r
-
-        print("random seed:", _r.randrange(10 ** 9))
+        print("NOTE: random-seed stress mode is not implemented; fixed seeds are used and recorded in the results.")
     run_all(n=args.n)

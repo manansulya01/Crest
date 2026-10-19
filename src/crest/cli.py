@@ -131,10 +131,26 @@ def _reproducible_result_payload(
             for key, value in details.items()
             if key not in _VOLATILE_CONCLUSION_FIELDS
         }
+    sources = summary.get("sources") or {}
+    # Artifact paths are machine-specific; the digest covers the artifact
+    # identity, content hash and size, not where the file happened to live.
+    normalized_artifacts = [
+        {
+            "name": artifact.get("name"),
+            "sha256": artifact.get("sha256"),
+            "size_bytes": artifact.get("size_bytes"),
+        }
+        for artifact in sorted(artifacts, key=lambda item: item.get("name") or "")
+    ]
     return {
         "conclusion": summary.get("conclusion"),
         "conclusion_details": details,
-        "artifacts": artifacts,
+        "experiment_config": summary.get("experiment_config"),
+        "sources": {
+            name: (meta or {}).get("sha256")
+            for name, meta in sorted(sources.items())
+        },
+        "artifacts": normalized_artifacts,
         "full_experiments": summary.get("full_experiments"),
         "failures": failures,
     }
@@ -153,15 +169,52 @@ def _canonical_digest(payload: dict[str, Any]) -> str:
 
 
 def _run_research_reproduction(args) -> int:
-    """Run the research validation and write its reproducibility manifest."""
+    """Run the research validation and write its reproducibility manifest.
+
+    Quick mode (no ``--full``) evaluates the conclusion from the stored
+    results and never writes research artifacts. Full mode runs the
+    experiments first, then evaluates the conclusion from the results that
+    run produced, then regenerates the canonical tables -- and only when the
+    run used the canonical configuration and every experiment succeeded.
+    """
     import importlib
+
+    try:
+        config_module = importlib.import_module(
+            "experiments.generalization.config"
+        )
+        cfg = config_module.canonical()
+    except Exception as exc:
+        print(
+            f"ERROR: cannot load the canonical experiment configuration: "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        return 2
+
+    override = getattr(args, "samples", None)
+    if override is not None and not args.full:
+        print(
+            "ERROR: --samples requires --full (quick mode reads stored results)",
+            file=sys.stderr,
+        )
+        return 2
+    if override is not None and override <= 0:
+        print("ERROR: --samples must be a positive integer", file=sys.stderr)
+        return 2
+    samples = cfg.samples if override is None else override
+    # Any explicit override is non-canonical, even when it happens to equal
+    # the canonical value: canonical evidence requires the declared
+    # configuration, not a command line that mimics it.
+    is_canonical = override is None
 
     started_at = datetime.now(timezone.utc).isoformat()
     failures: list[str] = []
+    experiment_failures: list[str] = []
     artifacts: list[dict[str, Any]] = []
 
     summary: dict[str, Any] = {
-        "manifest_version": 1,
+        "manifest_version": 2,
         "experiment_name": "research-reproduce",
         "started_at": started_at,
         "finished_at": None,
@@ -169,8 +222,17 @@ def _run_research_reproduction(args) -> int:
         "python": sys.version.split()[0],
         "crest_version": __version__,
         "os": platform.platform(),
-        "experiment_seed": None,
-        "experiment_version": None,
+        "experiment_seed": cfg.seed_base,
+        "experiment_version": f"config-v{cfg.config_version}",
+        "experiment_config_path": str(config_module.CONFIG_PATH),
+        "experiment_config": {
+            "source": "cli-override" if override is not None else "canonical",
+            "samples": samples,
+            "canonical_samples": cfg.samples,
+            "canonical": is_canonical,
+            "maximum_failure_upper_bound": cfg.maximum_failure_upper_bound,
+            "config_digest": cfg.digest(),
+        },
         "package_versions": _package_versions(),
         "artifacts": artifacts,
         "failures": failures,
@@ -178,7 +240,7 @@ def _run_research_reproduction(args) -> int:
 
     summary.update(_git_metadata())
 
-    # Hash the configuration actually selected by the CLI.
+    # Hash the runtime configuration actually selected by the CLI.
     config_path = Path(args.config)
     if config_path.is_file():
         try:
@@ -199,83 +261,27 @@ def _run_research_reproduction(args) -> int:
             "status": "not_found",
         }
 
-    try:
-        conclusion = importlib.import_module(
-            "experiments.generalization.conclusion"
-        )
-        outcome = conclusion.evaluate()
-        summary["conclusion"] = outcome.get("verdict")
-        summary["conclusion_details"] = outcome
+    repo_root = Path(__file__).resolve().parents[2]
+    results_dir = repo_root / "experiments" / "results"
 
-        # Record the conclusion artifact when the experiment writes one.
-        conclusion_artifact = _file_metadata(
-            Path(__file__).resolve().parents[2]
-            / "experiments"
-            / "results"
-            / "conclusion.json"
-        )
-        if conclusion_artifact:
-            artifacts.append({
-                "name": "conclusion",
-                **conclusion_artifact,
-            })
-
-    except Exception as exc:
-        summary["conclusion"] = None
-        failures.append(
-            f"Conclusion evaluation failed: {type(exc).__name__}: {exc}"
-        )
-
-    try:
-        tables = importlib.import_module(
-            "experiments.generalization.tables"
-        )
-        tables_path = tables.write_all()
-        summary["tables"] = str(tables_path)
-
-        table_artifact = _file_metadata(tables_path)
-        if table_artifact:
-            artifacts.append({
-                "name": "tables",
-                **table_artifact,
-            })
-
-    except Exception as exc:
-        summary["tables"] = None
-        failures.append(
-            f"Table generation failed: {type(exc).__name__}: {exc}"
-        )
-
+    # 1. Full experiments run first so that the conclusion and tables below
+    #    are computed from the results this run produced, not the previous
+    #    run's artifacts.
     if args.full:
         full_experiments = (
-            (
-                "experiments.generalization.cross_distribution",
-                "run_grid",
-            ),
-            (
-                "experiments.generalization.ablations",
-                "run_all",
-            ),
-            (
-                "experiments.generalization.exposure_sweep",
-                "run_all",
-            ),
-            (
-                "experiments.generalization.confidence_sensitivity",
-                "run_all",
-            ),
-            (
-                "experiments.generalization.drift_experiment",
-                "run",
-            ),
+            ("experiments.generalization.ablations", "run_all", {"n": samples}),
+            ("experiments.generalization.cross_distribution", "run_grid", {"samples": samples}),
+            ("experiments.generalization.exposure_sweep", "run_all", {}),
+            ("experiments.generalization.confidence_sensitivity", "run_all", {"n": samples}),
+            ("experiments.generalization.drift_experiment", "run", {}),
         )
 
         summary["full_experiments"] = {}
 
-        for module_name, function_name in full_experiments:
+        for module_name, function_name, kwargs in full_experiments:
             try:
                 module = importlib.import_module(module_name)
-                getattr(module, function_name)()
+                getattr(module, function_name)(**kwargs)
                 summary["full_experiments"][module_name] = "ok"
             except Exception as exc:
                 message = (
@@ -285,7 +291,103 @@ def _run_research_reproduction(args) -> int:
                     "status": "failed",
                     "error": message,
                 }
+                experiment_failures.append(f"{module_name}: {message}")
                 failures.append(f"{module_name}: {message}")
+
+    # 2. Record the source artifacts the conclusion and tables consume.
+    sources: dict[str, Any] = {}
+    for name in (
+        "ablations.jsonl",
+        "cross_distribution.jsonl",
+        "exposure_sweep.jsonl",
+        "confidence_sensitivity.jsonl",
+        "drift.jsonl",
+    ):
+        path = results_dir / name
+        meta = _file_metadata(path)
+        if meta is None:
+            sources[name] = {
+                "path": str(path),
+                "sha256": None,
+                "size_bytes": 0,
+                "status": "missing" if not path.is_file() else "unreadable",
+            }
+        else:
+            sources[name] = {
+                **meta,
+                "status": "ok" if meta["size_bytes"] > 0 else "empty",
+            }
+    summary["sources"] = sources
+
+    if not args.full and sources["ablations.jsonl"]["status"] != "ok":
+        failures.append(
+            "no stored ablation results were found "
+            "(experiments/results/ablations.jsonl); run "
+            "`crest research reproduce --full` first"
+        )
+
+    # 3. Evaluate the conclusion from the (fresh, in full mode) results.
+    try:
+        conclusion = importlib.import_module(
+            "experiments.generalization.conclusion"
+        )
+        outcome = conclusion.evaluate()
+        summary["conclusion"] = outcome.get("verdict")
+        summary["conclusion_details"] = outcome
+    except Exception as exc:
+        summary["conclusion"] = None
+        failures.append(
+            f"Conclusion evaluation failed: {type(exc).__name__}: {exc}"
+        )
+
+    # 4. Tables are regenerated only by a canonical full run whose
+    #    experiments all succeeded; reduced/overridden runs never replace
+    #    the canonical artifacts.
+    tables_report: dict[str, Any]
+    if not args.full:
+        tables_report = {
+            "status": "not_run",
+            "reason": "quick mode does not regenerate research artifacts; re-run with --full",
+        }
+    elif not is_canonical:
+        tables_report = {
+            "status": "skipped",
+            "reason": (
+                f"non-canonical samples override (n={samples} != canonical "
+                f"{cfg.samples}); canonical tables were not replaced"
+            ),
+        }
+    elif experiment_failures:
+        tables_report = {
+            "status": "skipped",
+            "reason": "full experiments failed; canonical tables were not replaced",
+            "failures": experiment_failures,
+        }
+    else:
+        try:
+            tables = importlib.import_module(
+                "experiments.generalization.tables"
+            )
+            info = tables.write_all()
+            tables_report = {
+                "status": "written",
+                "dir": info["dir"],
+                "files": info["files"],
+                "config_digest": info["config_digest"],
+            }
+            for name in info["files"]:
+                meta = _file_metadata(Path(info["dir"]) / name)
+                if meta:
+                    artifacts.append({"name": f"table:{name}", **meta})
+        except Exception as exc:
+            tables_report = {
+                "status": "failed",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+            failures.append(
+                f"Table generation failed: {type(exc).__name__}: {exc}"
+            )
+    summary["tables"] = tables_report
 
     summary["finished_at"] = datetime.now(timezone.utc).isoformat()
 
@@ -458,7 +560,22 @@ def main(argv: list[str] | None = None) -> int:
     reproduce.add_argument(
         "--full",
         action="store_true",
-        help="run the heavier experiments too",
+        help=(
+            "run the experiments at the canonical configuration and "
+            "regenerate the canonical tables (canonical runs only)"
+        ),
+    )
+    reproduce.add_argument(
+        "--samples",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "override the canonical per-arm sample count "
+            "(experiments/configs/experiment.yaml); overridden runs are "
+            "marked non-canonical in the manifest and never replace the "
+            "canonical tables"
+        ),
     )
 
     generalized = sub.add_parser(
@@ -543,7 +660,19 @@ def _dispatch(args, parser) -> int:
         module = importlib.import_module(module_name)
 
         if args.name == "tables":
-            print(f"wrote {getattr(module, function_name)()}")
+            try:
+                info = getattr(module, function_name)()
+            except (
+                module.MissingResultsError,
+                module.NonCanonicalResultsError,
+                module.TableValidationError,
+            ) as exc:
+                print(f"ERROR: {exc}", file=sys.stderr)
+                return 2
+            print(
+                f"wrote {len(info['files'])} files into {info['dir']}: "
+                + ", ".join(info["files"])
+            )
             return 0
 
         outcome = getattr(module, function_name)()
@@ -817,7 +946,19 @@ def _dispatch(args, parser) -> int:
             function = getattr(module, function_name)
 
             if args.name == "tables":
-                print(f"wrote {function()}")
+                try:
+                    info = function()
+                except (
+                    module.MissingResultsError,
+                    module.NonCanonicalResultsError,
+                    module.TableValidationError,
+                ) as exc:
+                    print(f"ERROR: {exc}", file=sys.stderr)
+                    return 2
+                print(
+                    f"wrote {len(info['files'])} files into {info['dir']}: "
+                    + ", ".join(info["files"])
+                )
                 return 0
 
             if args.name == "conclusion":

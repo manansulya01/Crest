@@ -21,6 +21,8 @@ from crest.evidence import EvidenceClass
 from crest.metrics_v04 import CoverageSnapshot
 from crest.recovery import RecoveryProgram
 
+from .config import canonical
+
 RESULTS = Path(__file__).resolve().parents[1] / "results"
 
 BUDGETS = (0.1, 0.25, 0.5, 1.0)
@@ -74,7 +76,10 @@ def run_budget(e_max: float, agent: str = "sweep-agent") -> dict[str, Any]:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def run_all(budgets=BUDGETS) -> list[dict[str, Any]]:
+def run_all(budgets=None) -> list[dict[str, Any]]:
+    cfg = canonical()
+    if budgets is None:
+        budgets = cfg.e_max_values
     out = []
     for e_max in budgets:
         row = run_budget(e_max)
@@ -82,8 +87,16 @@ def run_all(budgets=BUDGETS) -> list[dict[str, Any]]:
         print(f"e_max={e_max:<5} executed={row['executed']} denied={row['denied']} "
               f"certified={row['certified_exposure']} aac={row['aac']} gac={row['gac']}")
     RESULTS.mkdir(parents=True, exist_ok=True)
+    is_canonical = tuple(budgets) == cfg.e_max_values
     with (RESULTS / "exposure_sweep.jsonl").open("w", encoding="utf-8") as fh:
-        fh.write(json.dumps({"timestamp": datetime.now(timezone.utc).isoformat(), "schedule": len(SCHEDULE), "rows": out}, sort_keys=True) + "\n")
+        fh.write(json.dumps({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "schedule": len(SCHEDULE),
+            "e_max_values": list(budgets),
+            "canonical": is_canonical,
+            "config_digest": cfg.digest(),
+            "rows": out,
+        }, sort_keys=True) + "\n")
     return out
 
 
