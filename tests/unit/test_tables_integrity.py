@@ -195,6 +195,28 @@ def test_write_all_stages_and_replaces_with_matching_hashes(tmp_path):
     assert [p for p in dest.iterdir() if p.name.startswith(".crest-tables-")] == []
 
 
+def test_write_all_content_hashes_ignore_timing_but_raw_hashes_do_not(tmp_path):
+    rdir = _write_canonical_fixture(tmp_path / "first")
+    rdir_slow = _write_canonical_fixture(tmp_path / "second")
+
+    ablations_path = rdir_slow / "ablations.jsonl"
+    record = json.loads(ablations_path.read_text(encoding="utf-8"))
+    for row in record["results"]:
+        row["verification_seconds"] += 10.0
+    ablations_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+    drift_path = rdir_slow / "drift.jsonl"
+    drift = json.loads(drift_path.read_text(encoding="utf-8"))
+    drift["outcomes"][0]["revocation_latency_ms"] += 50.0
+    drift_path.write_text(json.dumps(drift) + "\n", encoding="utf-8")
+
+    first = tables.write_all(dest=tmp_path / "tables-first", results_dir=rdir)
+    second = tables.write_all(dest=tmp_path / "tables-second", results_dir=rdir_slow)
+
+    assert first["content_sha256"] == second["content_sha256"]
+    assert first["sha256"] != second["sha256"]
+
+
 def test_missing_source_fails_without_touching_destination(tmp_path):
     rdir = _write_canonical_fixture(tmp_path)
     (rdir / "drift.jsonl").unlink()

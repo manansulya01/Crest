@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import canonical
+from .provenance import scientific_artifact_digest
 
 RESULTS = Path(__file__).resolve().parents[1] / "results"
 TABLES = Path(__file__).resolve().parents[1] / "tables"
@@ -446,6 +447,10 @@ def write_all(
         "dir": str(dest_dir),
         "files": sorted(files),
         "sha256": hashes,
+        "content_sha256": {
+            name: scientific_artifact_digest(name, text)
+            for name, text in files.items()
+        },
         "config_digest": canonical().digest(),
     }
 

@@ -109,9 +109,16 @@ def _file_metadata(path_value: Any) -> dict[str, Any] | None:
 
 
 # Fields that change on every evaluation but carry no scientific content.
-# They are excluded from the reproducibility digest so that repeated runs
-# over equivalent inputs and outputs produce a stable result digest.
+# They are excluded from the canonical result digest so that repeated runs
+# over equivalent scientific inputs and outputs produce a stable digest.
 _VOLATILE_CONCLUSION_FIELDS = ("generated_at",)
+# Performance criteria are retained in the manifest and in the separate
+# performance digest, but they are observations of the machine rather than
+# scientific outcomes.
+_VOLATILE_CRITERIA = (
+    "C6_general_cost_mean_seconds",
+    "C7_fixture_cost_mean_seconds",
+)
 
 
 def _reproducible_result_payload(
@@ -119,10 +126,12 @@ def _reproducible_result_payload(
     artifacts: list[dict[str, Any]],
     failures: list[str],
 ) -> dict[str, Any]:
-    """The subset of the manifest that defines run-to-run reproducibility.
+    """The subset of the manifest that defines scientific reproducibility.
 
-    Volatile bookkeeping (evaluation timestamps) is normalized away; the
-    digest is not included in its own input, to avoid circular hashing.
+    Wall-clock observations, run timestamps, machine provenance, and raw
+    source/table byte hashes are excluded. The CLI records those separately
+    in the performance digest below. Scientific content is represented by
+    normalized source digests and normalized table-content hashes.
     """
     details = summary.get("conclusion_details")
     if isinstance(details, dict):
@@ -131,14 +140,35 @@ def _reproducible_result_payload(
             for key, value in details.items()
             if key not in _VOLATILE_CONCLUSION_FIELDS
         }
-    sources = summary.get("sources") or {}
-    # Artifact paths are machine-specific; the digest covers the artifact
-    # identity, content hash and size, not where the file happened to live.
+        criteria = details.get("criteria")
+        if isinstance(criteria, dict):
+            details = dict(details)
+            details["criteria"] = {
+                key: value
+                for key, value in criteria.items()
+                if key not in _VOLATILE_CRITERIA
+            }
+
+    # Full runs record normalized source digests. Fall back to the raw
+    # source hashes only for callers that have not supplied normalized
+    # content (for example a hand-built manifest in a test).
+    scientific_sources = summary.get("scientific_sources")
+    if scientific_sources is None:
+        sources = summary.get("sources") or {}
+        scientific_sources = {
+            name: (meta or {}).get("sha256")
+            for name, meta in sorted(sources.items())
+        }
+    else:
+        scientific_sources = dict(sorted(scientific_sources.items()))
+
+    # Artifact paths, raw byte hashes and sizes are machine/timing
+    # observations. The canonical digest uses the normalized content hash.
     normalized_artifacts = [
         {
             "name": artifact.get("name"),
-            "sha256": artifact.get("sha256"),
-            "size_bytes": artifact.get("size_bytes"),
+            "content_sha256": artifact.get("content_sha256")
+            or artifact.get("sha256"),
         }
         for artifact in sorted(artifacts, key=lambda item: item.get("name") or "")
     ]
@@ -146,14 +176,46 @@ def _reproducible_result_payload(
         "conclusion": summary.get("conclusion"),
         "conclusion_details": details,
         "experiment_config": summary.get("experiment_config"),
-        "sources": {
-            name: (meta or {}).get("sha256")
-            for name, meta in sorted(sources.items())
-        },
+        "sources": scientific_sources,
         "artifacts": normalized_artifacts,
         "full_experiments": summary.get("full_experiments"),
         "failures": failures,
     }
+
+
+def _performance_payload(
+    summary: dict[str, Any],
+    artifacts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Observational metadata kept separate from the canonical digest."""
+    performance = summary.get("performance") or {}
+    sources = summary.get("sources") or {}
+    return {
+        "run_seconds": performance.get("run_seconds"),
+        "conclusion_criteria": performance.get("conclusion_criteria") or {},
+        "source_timings": performance.get("source_timings") or {},
+        "raw_sources": {
+            name: (meta or {}).get("sha256")
+            for name, meta in sorted(sources.items())
+        },
+        "raw_artifacts": [
+            {
+                "name": artifact.get("name"),
+                "sha256": artifact.get("sha256"),
+                "size_bytes": artifact.get("size_bytes"),
+            }
+            for artifact in sorted(
+                artifacts, key=lambda item: item.get("name") or ""
+            )
+        ],
+    }
+
+
+def _performance_digest(
+    summary: dict[str, Any],
+    artifacts: list[dict[str, Any]],
+) -> str:
+    return _canonical_digest(_performance_payload(summary, artifacts))
 
 
 def _canonical_digest(payload: dict[str, Any]) -> str:
@@ -183,11 +245,14 @@ def _run_research_reproduction(args) -> int:
         config_module = importlib.import_module(
             "experiments.generalization.config"
         )
+        provenance = importlib.import_module(
+            "experiments.generalization.provenance"
+        )
         cfg = config_module.canonical()
     except Exception as exc:
         print(
-            f"ERROR: cannot load the canonical experiment configuration: "
-            f"{type(exc).__name__}: {exc}",
+            f"ERROR: cannot load the canonical experiment configuration or "
+            f"provenance helpers: {type(exc).__name__}: {exc}",
             file=sys.stderr,
         )
         return 2
@@ -214,7 +279,7 @@ def _run_research_reproduction(args) -> int:
     artifacts: list[dict[str, Any]] = []
 
     summary: dict[str, Any] = {
-        "manifest_version": 2,
+        "manifest_version": 3,
         "experiment_name": "research-reproduce",
         "started_at": started_at,
         "finished_at": None,
@@ -268,13 +333,29 @@ def _run_research_reproduction(args) -> int:
     #    are computed from the results this run produced, not the previous
     #    run's artifacts.
     if args.full:
-        full_experiments = (
-            ("experiments.generalization.ablations", "run_all", {"n": samples}),
-            ("experiments.generalization.cross_distribution", "run_grid", {"samples": samples}),
-            ("experiments.generalization.exposure_sweep", "run_all", {}),
-            ("experiments.generalization.confidence_sensitivity", "run_all", {"n": samples}),
-            ("experiments.generalization.drift_experiment", "run", {}),
-        )
+        # Canonical full runs pass no sample overrides: each experiment
+        # resolves its own canonical parameter from experiment.yaml. The
+        # canonical values differ by experiment (ablations 20, cross
+        # distribution 8, confidence 6), so reusing one CLI value for every
+        # arm would silently produce non-canonical evidence. An explicit
+        # --samples override applies uniformly to the sample-count arms and
+        # is recorded as non-canonical.
+        if override is None:
+            full_experiments = (
+                ("experiments.generalization.ablations", "run_all", {}),
+                ("experiments.generalization.cross_distribution", "run_grid", {}),
+                ("experiments.generalization.exposure_sweep", "run_all", {}),
+                ("experiments.generalization.confidence_sensitivity", "run_all", {}),
+                ("experiments.generalization.drift_experiment", "run", {}),
+            )
+        else:
+            full_experiments = (
+                ("experiments.generalization.ablations", "run_all", {"n": override}),
+                ("experiments.generalization.cross_distribution", "run_grid", {"samples": override}),
+                ("experiments.generalization.exposure_sweep", "run_all", {}),
+                ("experiments.generalization.confidence_sensitivity", "run_all", {"n": override}),
+                ("experiments.generalization.drift_experiment", "run", {}),
+            )
 
         summary["full_experiments"] = {}
 
@@ -318,6 +399,21 @@ def _run_research_reproduction(args) -> int:
                 "status": "ok" if meta["size_bytes"] > 0 else "empty",
             }
     summary["sources"] = sources
+
+    # Hash only scientific content for the canonical result digest. Raw file
+    # hashes remain above for artifact-integrity checks and the performance
+    # digest.
+    scientific_sources: dict[str, str | None] = {}
+    for name, meta in sources.items():
+        digest = None
+        if meta.get("status") == "ok":
+            digest = provenance.scientific_jsonl_digest(results_dir / name)
+            if digest is None:
+                failures.append(
+                    f"Could not compute scientific digest for {name}"
+                )
+        scientific_sources[name] = digest
+    summary["scientific_sources"] = scientific_sources
 
     if not args.full and sources["ablations.jsonl"]["status"] != "ok":
         failures.append(
@@ -375,10 +471,17 @@ def _run_research_reproduction(args) -> int:
                 "files": info["files"],
                 "config_digest": info["config_digest"],
             }
+            content_hashes = info.get("content_sha256") or {}
             for name in info["files"]:
                 meta = _file_metadata(Path(info["dir"]) / name)
                 if meta:
-                    artifacts.append({"name": f"table:{name}", **meta})
+                    artifacts.append(
+                        {
+                            "name": f"table:{name}",
+                            **meta,
+                            "content_sha256": content_hashes.get(name),
+                        }
+                    )
         except Exception as exc:
             tables_report = {
                 "status": "failed",
@@ -391,10 +494,37 @@ def _run_research_reproduction(args) -> int:
 
     summary["finished_at"] = datetime.now(timezone.utc).isoformat()
 
-    # Hash the actual collected outcome and artifact metadata. Volatile
-    # evaluation timestamps are normalized out so that repeated runs over
-    # equivalent inputs produce a stable result digest; the digest itself is
-    # excluded to avoid circular hashing.
+    # Preserve observational performance measurements separately from the
+    # scientific result digest. Raw source/table hashes are included here
+    # because they intentionally vary with timestamps and latency values.
+    try:
+        elapsed = (
+            datetime.fromisoformat(summary["finished_at"])
+            - datetime.fromisoformat(summary["started_at"])
+        ).total_seconds()
+    except (TypeError, ValueError):
+        elapsed = None
+    criteria = {}
+    details = summary.get("conclusion_details")
+    if isinstance(details, dict):
+        criteria = details.get("criteria") or {}
+    source_timings = {}
+    for name, meta in sources.items():
+        if meta.get("status") == "ok":
+            source_timings[name] = provenance.timing_values(results_dir / name)
+    summary["performance"] = {
+        "run_seconds": round(elapsed, 3) if elapsed is not None else None,
+        "conclusion_criteria": {
+            key: criteria.get(key)
+            for key in _VOLATILE_CRITERIA
+            if key in criteria
+        },
+        "source_timings": source_timings,
+    }
+
+    # Hash the actual collected outcome and normalized artifact content.
+    # Volatile timings and raw byte hashes are excluded from the scientific
+    # digest; the digest itself is excluded to avoid circular hashing.
     digest_payload = _reproducible_result_payload(
         summary, artifacts, failures
     )
@@ -404,6 +534,14 @@ def _run_research_reproduction(args) -> int:
     except (TypeError, ValueError) as exc:
         summary["result_digest"] = None
         failures.append(f"Could not calculate result digest: {exc}")
+
+    try:
+        summary["performance_digest"] = _performance_digest(
+            summary, artifacts
+        )
+    except (TypeError, ValueError) as exc:
+        summary["performance_digest"] = None
+        failures.append(f"Could not calculate performance digest: {exc}")
 
     manifest_dir = Path("reproduce_manifests")
     timestamp = datetime.now(timezone.utc).strftime(

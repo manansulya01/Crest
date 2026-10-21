@@ -27,10 +27,14 @@ message, no traceback). argparse errors: 2.
 (2); the scientific verdict is reported separately in its manifest. Quick
 mode never writes research artifacts; `--full` regenerates
 `experiments/tables/*` only for canonical runs whose experiments all
-succeeded. `--samples N` requires `--full`, marks the run non-canonical (even
+succeeded. `--samples N` requires `--full`, applies to the ablations,
+cross-distribution, and confidence arms, marks the run non-canonical (even
 when N equals the canonical value), and can never replace the canonical
-tables. Canonical parameters, digest coverage, and provenance details are
-documented in `docs/research-v0.4.md`.
+tables. Manifests use schema 3: `result_digest` covers scientific content
+(normalized source and table content, configuration, evidence, failures)
+while `performance_digest` covers run duration, timing/latency observations,
+and raw byte hashes. Canonical parameters, exact digest coverage, and
+provenance details are documented in `docs/research-v0.4.md`.
 
 Examples:
 

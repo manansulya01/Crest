@@ -6,7 +6,11 @@ equivalent inputs and outputs must produce the same ``result_digest``.
 """
 from __future__ import annotations
 
-from crest.cli import _canonical_digest, _reproducible_result_payload
+from crest.cli import (
+    _canonical_digest,
+    _performance_digest,
+    _reproducible_result_payload,
+)
 
 
 def _details(stamp: str) -> dict:
@@ -134,6 +138,112 @@ def test_digest_covers_source_hashes():
     )
 
 
+def test_digest_prefers_normalized_scientific_sources():
+    base = {
+        "conclusion": None,
+        "conclusion_details": None,
+        "scientific_sources": {"ablations.jsonl": "a" * 64},
+        "sources": {"ablations.jsonl": {"sha256": "1" * 64}},
+    }
+    # Raw bytes changed (new timestamps/latencies), science did not.
+    same_science = dict(
+        base,
+        sources={"ablations.jsonl": {"sha256": "2" * 64}},
+    )
+    assert _digest(base) == _digest(same_science)
+    changed_science = dict(
+        base,
+        scientific_sources={"ablations.jsonl": "b" * 64},
+    )
+    assert _digest(base) != _digest(changed_science)
+
+
+def test_digest_ignores_timing_criteria_but_performance_digest_does_not():
+    details = _details("t")
+    details["criteria"] = {
+        "C1": True,
+        "C6_general_cost_mean_seconds": 1.0,
+        "C7_fixture_cost_mean_seconds": 0.5,
+    }
+    base = {
+        "conclusion": "SUPPORTED",
+        "conclusion_details": details,
+        "performance": {
+            "run_seconds": 1.0,
+            "conclusion_criteria": {
+                "C6_general_cost_mean_seconds": 1.0,
+                "C7_fixture_cost_mean_seconds": 0.5,
+            },
+        },
+    }
+    slower = {
+        "conclusion": "SUPPORTED",
+        "conclusion_details": {
+            **details,
+            "criteria": {
+                **details["criteria"],
+                "C6_general_cost_mean_seconds": 9.0,
+                "C7_fixture_cost_mean_seconds": 3.0,
+            },
+        },
+        "performance": {
+            "run_seconds": 17.0,
+            "conclusion_criteria": {
+                "C6_general_cost_mean_seconds": 9.0,
+                "C7_fixture_cost_mean_seconds": 3.0,
+            },
+        },
+    }
+    assert _digest(base) == _digest(slower)
+    assert _performance_digest(base, []) != _performance_digest(slower, [])
+
+
+def test_digest_uses_normalized_artifact_content_not_raw_bytes():
+    base = {"conclusion": None, "conclusion_details": None}
+    artifact = {
+        "name": "table:ablations.md",
+        "sha256": "1" * 64,
+        "size_bytes": 100,
+        "content_sha256": "a" * 64,
+    }
+    timing_only = {
+        **artifact,
+        "sha256": "2" * 64,
+        "size_bytes": 101,
+    }
+    changed_content = {**artifact, "content_sha256": "b" * 64}
+    assert _digest(base, artifacts=[artifact]) == _digest(
+        base, artifacts=[timing_only]
+    )
+    assert _performance_digest(base, [artifact]) != _performance_digest(
+        base, [timing_only]
+    )
+    assert _digest(base, artifacts=[artifact]) != _digest(
+        base, artifacts=[changed_content]
+    )
+
+
+def test_performance_digest_changes_when_only_source_timings_change():
+    base = {
+        "conclusion": None,
+        "conclusion_details": None,
+        "sources": {"ablations.jsonl": {"sha256": "1" * 64}},
+        "performance": {
+            "run_seconds": 1.0,
+            "source_timings": {"ablations.jsonl": {"verification_seconds": [1.0]}},
+        },
+    }
+    slower = {
+        **base,
+        "performance": {
+            "run_seconds": 2.0,
+            "source_timings": {"ablations.jsonl": {"verification_seconds": [2.0]}},
+        },
+    }
+    assert _digest(base) == _digest(slower)
+    assert _performance_digest(base, []) != _performance_digest(slower, [])
+
+
 # ---------------------------------------------------------------------------
 # CLI reproduction modes
 # ---------------------------------------------------------------------------
@@ -143,6 +253,7 @@ import json  # noqa: E402
 
 import crest.cli as cli  # noqa: E402
 from experiments.generalization import config as experiment_config  # noqa: E402
+from experiments.generalization import provenance  # noqa: E402
 
 _EXPERIMENT_FUNCTIONS = {
     "experiments.generalization.ablations": "run_all",
@@ -167,14 +278,23 @@ def _stub_file_metadata(monkeypatch):
             "size_bytes": 42,
         },
     )
+    # Keep CLI-mode tests independent of the developer's stored results.
+    monkeypatch.setattr(
+        provenance,
+        "scientific_jsonl_digest",
+        lambda path_value: "cd" * 32,
+    )
+    monkeypatch.setattr(provenance, "timing_values", lambda path_value: {})
 
 
-def _stub_experiments(monkeypatch, order, fail_module=None):
+def _stub_experiments(monkeypatch, order, fail_module=None, calls=None):
     for module_name, function_name in _EXPERIMENT_FUNCTIONS.items():
         module = importlib.import_module(module_name)
 
         def _stub(*args, _name=module_name, **kwargs):
             order.append(_name)
+            if calls is not None:
+                calls[_name] = kwargs
             if _name == fail_module:
                 raise RuntimeError("stubbed experiment failure")
 
@@ -222,7 +342,7 @@ def test_quick_reproduction_never_writes_research_artifacts(tmp_path, monkeypatc
 
     assert cli.main(["research", "reproduce"]) == 0
     manifest = _manifest(tmp_path)
-    assert manifest["manifest_version"] == 2
+    assert manifest["manifest_version"] == 3
     assert manifest["experiment_config"]["source"] == "canonical"
     assert manifest["experiment_config"]["samples"] == 20
     assert manifest["experiment_config"]["canonical"] is True
@@ -275,7 +395,8 @@ def test_full_reproduction_runs_experiments_first_then_writes_tables(tmp_path, m
     _no_pip_freeze(monkeypatch)
     _stub_file_metadata(monkeypatch)
     order: list[str] = []
-    _stub_experiments(monkeypatch, order)
+    calls: dict[str, dict] = {}
+    _stub_experiments(monkeypatch, order, calls=calls)
     _stub_conclusion(monkeypatch, order)
     fake_dir = tmp_path / "fake-tables"
     fake_dir.mkdir()
@@ -306,8 +427,23 @@ def test_full_reproduction_runs_experiments_first_then_writes_tables(tmp_path, m
         "tables",
     ]
     manifest = _manifest(tmp_path)
+    assert manifest["manifest_version"] == 3
+    assert manifest["result_digest"]
+    assert manifest["performance_digest"]
+    assert "scientific_sources" in manifest
+    assert "performance" in manifest
     assert manifest["tables"]["status"] == "written"
     assert manifest["experiment_config"]["source"] == "canonical"
+    # Canonical full runs must let each experiment resolve its own canonical
+    # parameter. Passing the ablation n=20 to confidence (canonical 6) or
+    # cross-distribution (canonical 8) silently produces non-canonical data.
+    assert calls == {
+        "experiments.generalization.ablations": {},
+        "experiments.generalization.cross_distribution": {},
+        "experiments.generalization.exposure_sweep": {},
+        "experiments.generalization.confidence_sensitivity": {},
+        "experiments.generalization.drift_experiment": {},
+    }
     assert all(
         value == "ok" for value in manifest["full_experiments"].values()
     )
@@ -340,7 +476,8 @@ def test_samples_override_is_reported_and_skips_canonical_tables(tmp_path, monke
     _no_pip_freeze(monkeypatch)
     _stub_file_metadata(monkeypatch)
     order: list[str] = []
-    _stub_experiments(monkeypatch, order)
+    calls: dict[str, dict] = {}
+    _stub_experiments(monkeypatch, order, calls=calls)
     _stub_conclusion(monkeypatch, order)
     _forbid_tables(monkeypatch)
     monkeypatch.chdir(tmp_path)
@@ -352,6 +489,13 @@ def test_samples_override_is_reported_and_skips_canonical_tables(tmp_path, monke
     assert manifest["experiment_config"]["canonical"] is False
     assert manifest["tables"]["status"] == "skipped"
     assert "canonical" in manifest["tables"]["reason"]
+    # Explicit overrides are applied uniformly to the sample-count arms and
+    # never to the fixed-budget experiments.
+    assert calls["experiments.generalization.ablations"] == {"n": 2}
+    assert calls["experiments.generalization.confidence_sensitivity"] == {"n": 2}
+    assert calls["experiments.generalization.cross_distribution"] == {"samples": 2}
+    assert calls["experiments.generalization.exposure_sweep"] == {}
+    assert calls["experiments.generalization.drift_experiment"] == {}
 
 
 def test_samples_override_equal_to_canonical_is_still_noncanonical(
