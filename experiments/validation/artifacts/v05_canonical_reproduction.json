@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "experiment_name": "v05-canonical-reproduction",
+  "validation_commit": "0ee0af795d1844b25085aaaed3c3c8da7d5aae99",
+  "baseline_commit": "042ed7b703e7ffa3165d99136bfb262f64630b77",
+  "historical_result_digest": "38e71b6d67e4ead7dfdf55c63af0ae9f8da05ec115c7fb7ad259525f3e998905",
+  "runs": [
+    {
+      "label": "run1",
+      "manifest": "reproduce_manifests/v05_canonical_run1.json",
+      "log": "reproduce_manifests/v05_canonical_run1.log",
+      "started_at": "2026-10-22T11:39:16.463842+00:00",
+      "finished_at": "2026-10-22T11:57:17.057769+00:00",
+      "run_seconds": 1080.594,
+      "git_commit": "0ee0af795d1844b25085aaaed3c3c8da7d5aae99",
+      "branch": null,
+      "working_tree_dirty": true,
+      "canonical_config_digest": "34a98f8ba90ad127d3512350cd42e3992e1c703b6b201688aa70d60ad72d1fcf",
+      "result_digest": "38e71b6d67e4ead7dfdf55c63af0ae9f8da05ec115c7fb7ad259525f3e998905",
+      "performance_digest": "d6ebecd14e90e7c310dd579fb6ead15538b089e7aae9313671a30527a8435358",
+      "tables_status": "written",
+      "failures": [],
+      "experiment_failures": [],
+      "raw_table_hashes": {
+        "ablations.csv": "8aeb2eeecfcfe497355f29963ebdc7c6b7f137a52a2a192611cf08cfe3ad9bba",
+        "ablations.md": "d03cde76e049212b6250ae178c629fcf39d5caed32511a994bc1a195cca8c5b1",
+        "all_tables.md": "96ebb69c88e620c8f78942ea688659650b22f19e18a342598e85eb1d62ac9e62",
+        "confidence_sensitivity.md": "a9bbe4b94d7403c43115558774698e4fa01e28fc37511e005b5eedef0c74f2c3",
+        "cross_distribution.md": "c126aad4bd7a3eac790726fb0e98d719832fb7fa2333795d247ec6f723ae2013",
+        "drift.md": "c7335a46c065545cde3bc21c446a200d686fe464574eb47fe14c58a4f8b30692",
+        "exposure_sweep.md": "5689b1458f8aa74d02d4dd7ec7ba85861fced921b87d4174ad23a27d94b8a08a"
+      },
+      "scientific_table_digests": {
+        "ablations.csv": "14dd038779de6e2b305cd16d5f63c4cecec40082c66eafc656e65899b9a28dfd",
+        "ablations.md": "816a8580a5cf65f99663ae7c71b9e96af02a21d1d179e7cf4b66a15b25ad3bc2",
+        "all_tables.md": "c41b32c0d13227ce756d9f11f0c9a6051e46762c937631843d35ecd19a59f7f5",
+        "confidence_sensitivity.md": "839a0f035d02619697f165584dcdd6442b07b57c48c9742bc2cc19ea3882179f",
+        "cross_distribution.md": "6696bdb5e5045fe8ec000b778a0c6f7ed060f744a1a8d37acf626c3b876199b3",
+        "drift.md": "84bbf9970566d6a9102b72d1c4749f9315962fd6eed6166fcf66222b72bcf1f2",
+        "exposure_sweep.md": "c870891f018f9de246d76af07c9900891a9ee1705932504e141d073ab0dbcb8c"
+      }
+    },
+    {
+      "label": "run2",
+      "manifest": "reproduce_manifests/v05_canonical_run2.json",
+      "log": "reproduce_manifests/v05_canonical_run2.log",
+      "started_at": "2026-10-22T11:58:05.991531+00:00",
+      "finished_at": "2026-10-22T12:11:52.037928+00:00",
+      "run_seconds": 826.046,
+      "git_commit": "0ee0af795d1844b25085aaaed3c3c8da7d5aae99",
+      "branch": null,
+      "working_tree_dirty": true,
+      "canonical_config_digest": "34a98f8ba90ad127d3512350cd42e3992e1c703b6b201688aa70d60ad72d1fcf",
+      "result_digest": "38e71b6d67e4ead7dfdf55c63af0ae9f8da05ec115c7fb7ad259525f3e998905",
+      "performance_digest": "a1444ddb653dd0a57fca7f0c808bbaae792a7290b50be2dd5400fffebf194506",
+      "tables_status": "written",
+      "failures": [],
+      "experiment_failures": [],
+      "raw_table_hashes": {
+        "ablations.csv": "a6e91d10e88f3de55d0b01b3116c2006721b2869bdb6acef108802356fd1e111",
+        "ablations.md": "3933f0fd6ad71e964ea3f7008021cc91bcc6cab384729679c58383346d568a88",
+        "all_tables.md": "49ed1684b7f3aee7cde1cdcdff257b4c6e2a99c94bba0fc278c05c7164e3eb50",
+        "confidence_sensitivity.md": "72acae8931ef1337046fed7cf96dd19db5c2854f3de2a266784173c0c75c8d50",
+        "cross_distribution.md": "b8a4285fd1460783c9bd317343ea583cf457a819e15e6cd328b12e0ed1e8e47f",
+        "drift.md": "57cea9e18f67320640712ce256940406e891b752bc68e39a0f860c53b7fff6c1",
+        "exposure_sweep.md": "07ee21a8aad74a8a7b84d03c17ed649cebd5c47981015b8d0079c25d2de00b2f"
+      },
+      "scientific_table_digests": {
+        "ablations.csv": "14dd038779de6e2b305cd16d5f63c4cecec40082c66eafc656e65899b9a28dfd",
+        "ablations.md": "816a8580a5cf65f99663ae7c71b9e96af02a21d1d179e7cf4b66a15b25ad3bc2",
+        "all_tables.md": "c41b32c0d13227ce756d9f11f0c9a6051e46762c937631843d35ecd19a59f7f5",
+        "confidence_sensitivity.md": "839a0f035d02619697f165584dcdd6442b07b57c48c9742bc2cc19ea3882179f",
+        "cross_distribution.md": "6696bdb5e5045fe8ec000b778a0c6f7ed060f744a1a8d37acf626c3b876199b3",
+        "drift.md": "84bbf9970566d6a9102b72d1c4749f9315962fd6eed6166fcf66222b72bcf1f2",
+        "exposure_sweep.md": "c870891f018f9de246d76af07c9900891a9ee1705932504e141d073ab0dbcb8c"
+      }
+    }
+  ],
+  "committed_tables": {
+    "source": "committed experiments/tables",
+    "raw_table_hashes": {
+      "ablations.csv": "437059f34da6f8eca74575fba51013dec263cac827087fbd44f63a95a8345804",
+      "ablations.md": "510b7e81490c62ed776ec6d1bcb9e6094bb442f2822cd7b01eb6fa7bc22cefe5",
+      "all_tables.md": "98f1bd04f352bbbbf83ab4669cc2d8cb9d71c6d363065655fa3d01a0ca100358",
+      "confidence_sensitivity.md": "6331fa061b291704d64fbe70b6400391c609500cda26ee35a15892cafb332e84",
+      "cross_distribution.md": "b9d499e7d82a4bdb9244f4c6a6331e8583e60535ad6b4bd1b84a28e564121e26",
+      "drift.md": "1afc25e905a6fca5dd0e1dacd44ea45a4ef23d31310df2597513542f97062575",
+      "exposure_sweep.md": "1b6e31e369ea92c1ab86c09543bf2a7ebf8811c3770c1e31a59cb8f3b456b52c"
+    },
+    "scientific_table_digests": {
+      "ablations.csv": "14dd038779de6e2b305cd16d5f63c4cecec40082c66eafc656e65899b9a28dfd",
+      "ablations.md": "816a8580a5cf65f99663ae7c71b9e96af02a21d1d179e7cf4b66a15b25ad3bc2",
+      "all_tables.md": "c41b32c0d13227ce756d9f11f0c9a6051e46762c937631843d35ecd19a59f7f5",
+      "confidence_sensitivity.md": "839a0f035d02619697f165584dcdd6442b07b57c48c9742bc2cc19ea3882179f",
+      "cross_distribution.md": "6696bdb5e5045fe8ec000b778a0c6f7ed060f744a1a8d37acf626c3b876199b3",
+      "drift.md": "84bbf9970566d6a9102b72d1c4749f9315962fd6eed6166fcf66222b72bcf1f2",
+      "exposure_sweep.md": "c870891f018f9de246d76af07c9900891a9ee1705932504e141d073ab0dbcb8c"
+    }
+  },
+  "comparison": {
+    "result_digests_equal": true,
+    "result_digest_matches_historical": true,
+    "config_digests_equal": true,
+    "scientific_tables_equal_across_runs": true,
+    "scientific_tables_match_committed": true,
+    "raw_table_hashes_differ_across_runs": true,
+    "performance_digests_differ_across_runs": true,
+    "note": "Raw table hashes and performance digests include wall-clock timing. Scientific table digests and the canonical result digest are stable."
+  }
+}
