@@ -133,7 +133,7 @@ def test_replay_after_revoke_cannot_restore_authority(workspace):
 def test_fresh_database_records_migration_history(workspace):
     store = Store(workspace / ".crest" / "crest.db")
     history = store.migration_history()
-    assert [h[0] for h in history] == [1, 2]
+    assert [h[0] for h in history] == [1, 2, 3]
     store.close()
 
 
@@ -157,7 +157,7 @@ def test_v1_database_is_migrated_not_discarded(workspace):
 
     store = Store(db)
     assert store.get_receipt_payload("legacy-receipt") is not None  # not discarded
-    assert [h[0] for h in store.migration_history()] == [1, 2]
+    assert [h[0] for h in store.migration_history()] == [1, 2, 3]
     store.close()
 
 

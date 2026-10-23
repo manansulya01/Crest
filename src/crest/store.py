@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class SecurityStateCorrupt(Exception):
@@ -40,6 +40,41 @@ class CapabilityRow:
     updated_at: str
     revoked_at: str | None = None
     revocation_reason: str | None = None
+
+
+def _migrate_v2_to_v3(conn: sqlite3.Connection) -> None:
+    """v2 -> v3: add the model-inference request ledger.
+
+    The ledger is append-only and stores reservation, usage, status, and a
+    response digest. It never stores prompt or response text.
+    """
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS inference_requests (
+            request_id TEXT PRIMARY KEY,
+            model TEXT NOT NULL,
+            status TEXT NOT NULL,
+            reserved_units REAL NOT NULL,
+            actual_units REAL,
+            input_tokens INTEGER,
+            output_tokens INTEGER,
+            created_at TEXT NOT NULL,
+            finished_at TEXT,
+            error TEXT,
+            response_digest TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_inference_requests_status
+            ON inference_requests(status);
+        CREATE INDEX IF NOT EXISTS idx_inference_requests_created
+            ON inference_requests(created_at);
+        """
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO migrations (version, applied_at, note) VALUES (?,?,?)",
+        (3, "unknown", "v2->v3 model-inference request ledger"),
+    )
+    conn.execute("UPDATE meta SET value='3' WHERE key='schema_version'")
+    conn.commit()
 
 
 class Store:
@@ -80,14 +115,16 @@ class Store:
         if row is None:
             self._conn.execute("INSERT INTO meta VALUES ('schema_version', ?)", ("1",))
             self._conn.execute("INSERT OR IGNORE INTO migrations VALUES (1, 'unknown', 'initial')")
-            self._conn.execute("UPDATE meta SET value='2' WHERE key='schema_version'")
-            self._conn.execute("INSERT OR IGNORE INTO migrations VALUES (2, 'unknown', 'v1->v2 receipt payload versioning')")
             self._conn.commit()
-            return
-        current = int(row[0])
+            current = 1
+        else:
+            current = int(row[0])
         if current == 1:
             _migrate_v1_to_v2(self._conn)
             current = 2
+        if current == 2:
+            _migrate_v2_to_v3(self._conn)
+            current = 3
         if current != SCHEMA_VERSION:
             raise SecurityStateCorrupt(f"unsupported schema version {current}")
         self._conn.commit()
@@ -190,6 +227,128 @@ class Store:
     def total_exposure(self) -> float:
         cur = self._conn.execute("SELECT COALESCE(SUM(amount),0) FROM exposure")
         return float(cur.fetchone()[0])
+
+    # ---- model inference ledger ----
+    def try_begin_inference(
+        self,
+        request_id: str,
+        model: str,
+        reserved_units: float,
+        budget_limit: float,
+        created_at: str,
+        window_cutoff: str,
+        timeout: float = 10.0,
+    ) -> tuple[bool, str]:
+        """Atomically reserve an inference request and its worst-case budget.
+
+        The reservation is never refunded. A duplicate request_id is rejected
+        forever, which gives at-most-once execution even after a crash.
+        """
+        if reserved_units < 0:
+            raise ValueError("negative inference reservation")
+        if budget_limit < 0:
+            raise ValueError("negative inference budget")
+        busy = sqlite3.connect(str(self.db_path), check_same_thread=False, timeout=timeout)
+        try:
+            busy.execute("PRAGMA busy_timeout=%d" % int(timeout * 1000))
+            busy.execute("BEGIN IMMEDIATE")
+            existing = busy.execute(
+                "SELECT 1 FROM inference_requests WHERE request_id=?", (request_id,)
+            ).fetchone()
+            if existing is not None:
+                busy.rollback()
+                return False, "DUPLICATE_REQUEST"
+            total = busy.execute(
+                "SELECT COALESCE(SUM(reserved_units),0) FROM inference_requests WHERE created_at >= ?",
+                (window_cutoff,),
+            ).fetchone()[0]
+            if float(total) + reserved_units > budget_limit + 1e-12:
+                busy.rollback()
+                return False, "BUDGET_EXCEEDED"
+            busy.execute(
+                "INSERT INTO inference_requests "
+                "(request_id, model, status, reserved_units, created_at) "
+                "VALUES (?,?,?,?,?)",
+                (request_id, model, "RESERVED", reserved_units, created_at),
+            )
+            busy.commit()
+            self._conn.execute("SELECT 1").fetchall()
+            return True, "OK"
+        except sqlite3.Error:
+            try:
+                busy.rollback()
+            except sqlite3.Error:
+                pass
+            raise
+        finally:
+            busy.close()
+
+    def finish_inference(
+        self,
+        request_id: str,
+        status: str,
+        *,
+        actual_units: float | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        finished_at: str | None = None,
+        error: str | None = None,
+        response_digest: str | None = None,
+    ) -> None:
+        if status not in ("COMPLETED", "FAILED", "TIMED_OUT", "INVALID"):
+            raise ValueError(f"invalid inference status {status!r}")
+        cur = self._conn.execute(
+            "UPDATE inference_requests SET status=?, actual_units=?, "
+            "input_tokens=?, output_tokens=?, finished_at=?, error=?, "
+            "response_digest=? WHERE request_id=? AND status='RESERVED'",
+            (
+                status,
+                actual_units,
+                input_tokens,
+                output_tokens,
+                finished_at,
+                error,
+                response_digest,
+                request_id,
+            ),
+        )
+        if cur.rowcount != 1:
+            raise SecurityStateCorrupt(
+                f"inference request {request_id!r} is not reserved or already finished"
+            )
+        self._conn.commit()
+
+    def get_inference(self, request_id: str) -> dict[str, Any] | None:
+        cur = self._conn.execute(
+            "SELECT request_id, model, status, reserved_units, actual_units, "
+            "input_tokens, output_tokens, created_at, finished_at, error, "
+            "response_digest FROM inference_requests WHERE request_id=?",
+            (request_id,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        columns = [d[0] for d in cur.description]
+        return dict(zip(columns, row))
+
+    def list_inference(self, limit: int = 100) -> list[dict[str, Any]]:
+        cur = self._conn.execute(
+            "SELECT request_id, model, status, reserved_units, actual_units, "
+            "input_tokens, output_tokens, created_at, finished_at, error, "
+            "response_digest FROM inference_requests ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        )
+        columns = [d[0] for d in cur.description]
+        return [dict(zip(columns, row)) for row in cur.fetchall()]
+
+    def inference_totals(self, window_cutoff: str) -> tuple[float, int]:
+        cur = self._conn.execute(
+            "SELECT COALESCE(SUM(reserved_units),0), COUNT(*) "
+            "FROM inference_requests WHERE created_at >= ?",
+            (window_cutoff,),
+        )
+        row = cur.fetchone()
+        return float(row[0]), int(row[1])
 
     def exposure_since(self, cutoff_iso: str) -> float:
         cur = self._conn.execute("SELECT COALESCE(SUM(amount),0) FROM exposure WHERE timestamp >= ?", (cutoff_iso,))

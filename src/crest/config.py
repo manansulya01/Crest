@@ -8,6 +8,7 @@ from pathlib import Path
 
 import yaml
 
+from .inference import InferencePolicy
 from .policy import EvidencePolicy, FamilyPolicy, GeneralPolicy, StatisticsPolicy
 
 DEFAULT_SHELL_ALLOWLIST = [
@@ -49,6 +50,7 @@ class CrestConfig:
     dry_run: bool = False
     policy_version: str = "policy-v1"
     mode: str = "production"  # production | research
+    inference_policy: InferencePolicy = field(default_factory=InferencePolicy)
     evidence_policy: EvidencePolicy = field(default_factory=EvidencePolicy)
     limits: "ResourceLimits" = field(default_factory=lambda: ResourceLimits())
 
@@ -95,7 +97,7 @@ def load(path: Path | str) -> CrestConfig:
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     if not isinstance(data, dict):
         raise ValueError("config must be a YAML mapping")
-    allowed_sections = {"workspace", "exposure", "admission", "revocation", "runtime", "shell", "state", "audit", "evidence", "statistics", "limits", "policy"}
+    allowed_sections = {"workspace", "exposure", "admission", "revocation", "runtime", "shell", "state", "audit", "evidence", "statistics", "limits", "policy", "inference"}
     unknown = set(data) - allowed_sections
     if unknown:
         raise ValueError(f"unknown config sections (typo or tampering): {sorted(unknown)}")
@@ -139,6 +141,23 @@ def load(path: Path | str) -> CrestConfig:
         max_shell_output_bytes=int(limits_raw.get("max_shell_output_bytes", 64 * 1024)),
         max_argument_bytes=int(limits_raw.get("max_argument_bytes", 64 * 1024)),
     )
+    inf_raw = data.get("inference", {})
+    inference_policy = InferencePolicy(
+        allowed_models=tuple(inf_raw.get("allowed_models", InferencePolicy.allowed_models)),
+        max_input_tokens=int(inf_raw.get("max_input_tokens", 4096)),
+        max_output_tokens=int(inf_raw.get("max_output_tokens", 1024)),
+        max_prompt_chars=int(inf_raw.get("max_prompt_chars", 32768)),
+        max_output_chars=int(inf_raw.get("max_output_chars", 65536)),
+        input_token_weight=float(inf_raw.get("input_token_weight", 1.0)),
+        output_token_weight=float(inf_raw.get("output_token_weight", 1.0)),
+        max_cost_units_per_request=float(inf_raw.get("max_cost_units_per_request", 8192.0)),
+        window_seconds=float(inf_raw.get("window_seconds", 3600.0)),
+        window_budget_units=float(inf_raw.get("window_budget_units", 100000.0)),
+        request_timeout_seconds=float(inf_raw.get("request_timeout_seconds", 30.0)),
+        allowed_finish_reasons=tuple(inf_raw.get("allowed_finish_reasons", InferencePolicy.allowed_finish_reasons)),
+        require_usage=bool(inf_raw.get("require_usage", True)),
+        require_nonempty_output=bool(inf_raw.get("require_nonempty_output", True)),
+    )
     cfg = CrestConfig(
         workspace_root=root,
         e_max=float(exposure.get("max_window_exposure", 1.0)),
@@ -158,6 +177,7 @@ def load(path: Path | str) -> CrestConfig:
         mode=str(data.get("runtime", {}).get("mode", "production")),
         evidence_policy=policy,
         limits=limits,
+        inference_policy=inference_policy,
     )
     cfg.validate()
     return cfg
@@ -202,6 +222,23 @@ limits:
   max_verification_cases: 500
   max_holdout_cases: 500
   max_shift_cases: 200
+inference:
+  allowed_models:
+    - fake-echo
+  max_input_tokens: 4096
+  max_output_tokens: 1024
+  max_prompt_chars: 32768
+  max_output_chars: 65536
+  input_token_weight: 1.0
+  output_token_weight: 1.0
+  max_cost_units_per_request: 8192.0
+  window_seconds: 3600
+  window_budget_units: 100000.0
+  request_timeout_seconds: 30.0
+  allowed_finish_reasons:
+    - stop
+  require_usage: true
+  require_nonempty_output: true
 policy:
   version: policy-v1
 revocation:
