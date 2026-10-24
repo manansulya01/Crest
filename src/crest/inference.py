@@ -95,6 +95,7 @@ class InferenceResponse:
     text: str
     usage: TokenUsage
     finish_reason: str
+    usage_reported: bool = True
     provider_request_id: str | None = None
     latency_ms: float = 0.0
 
@@ -112,6 +113,9 @@ class InferencePolicy:
     window_seconds: float = 3600.0
     window_budget_units: float = 100000.0
     request_timeout_seconds: float = 30.0
+    max_attempts: int = 1
+    retry_backoff_seconds: float = 0.0
+    retry_on_transient: bool = True
     allowed_finish_reasons: tuple[str, ...] = ("stop",)
     require_usage: bool = True
     require_nonempty_output: bool = True
@@ -127,6 +131,10 @@ class InferencePolicy:
             raise ValueError("budgets must be positive")
         if self.window_seconds <= 0 or self.request_timeout_seconds <= 0:
             raise ValueError("time limits must be positive")
+        if self.max_attempts < 1:
+            raise ValueError("max_attempts must be positive")
+        if self.retry_backoff_seconds < 0:
+            raise ValueError("retry_backoff_seconds must be non-negative")
         if not self.allowed_models:
             raise ValueError("at least one model must be allowed")
         if not self.allowed_finish_reasons:
@@ -155,9 +163,11 @@ class InferenceResult:
     model: str
     reserved_units: float
     charged_units: float
-    actual_units: float
+    actual_units: float | None
+    cost_known: bool
     input_tokens: int
     output_tokens: int
+    attempts: int
     duration_ms: float
 
 
@@ -211,6 +221,7 @@ class FakeModelAdapter:
                 text="wrong model",
                 usage=TokenUsage(1, 1),
                 finish_reason="stop",
+                usage_reported=True,
             )
         if self.failure_mode == "empty":
             return InferenceResponse(
@@ -219,6 +230,7 @@ class FakeModelAdapter:
                 text="",
                 usage=TokenUsage(1, 0),
                 finish_reason="stop",
+                usage_reported=True,
             )
         if self.failure_mode == "malformed":
             return InferenceResponse(
@@ -227,6 +239,7 @@ class FakeModelAdapter:
                 text="malformed",
                 usage=TokenUsage(1, 1),
                 finish_reason="length",
+                usage_reported=True,
             )
         if self.failure_mode == "over_usage":
             return InferenceResponse(
@@ -235,6 +248,7 @@ class FakeModelAdapter:
                 text="too much",
                 usage=TokenUsage(request.max_output_tokens + 1, 1),
                 finish_reason="stop",
+                usage_reported=True,
             )
         text = f"{self.output_prefix}{request.model}:{hashlib.sha256(request.prompt.encode('utf-8')).hexdigest()[:16]}"
         input_tokens = max(1, (len(request.prompt) + len(request.system) + 3) // 4)
@@ -245,6 +259,7 @@ class FakeModelAdapter:
             text=text,
             usage=TokenUsage(input_tokens, output_tokens),
             finish_reason="stop",
+            usage_reported=True,
             latency_ms=0.0,
         )
 
@@ -311,8 +326,9 @@ class HttpChatAdapter:
             text = message["content"]
             finish_reason = choice.get("finish_reason", "stop")
             usage = parsed.get("usage", {})
-            input_tokens = int(usage.get("prompt_tokens", 0))
-            output_tokens = int(usage.get("completion_tokens", 0))
+            usage_reported = "usage" in parsed and isinstance(usage, dict)
+            input_tokens = int(usage.get("prompt_tokens", 0)) if usage_reported else 0
+            output_tokens = int(usage.get("completion_tokens", 0)) if usage_reported else 0
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise InferenceError("provider response missing required fields") from exc
         if not isinstance(text, str):
@@ -323,6 +339,7 @@ class HttpChatAdapter:
             text=text,
             usage=TokenUsage(input_tokens, output_tokens),
             finish_reason=str(finish_reason),
+            usage_reported=usage_reported,
             provider_request_id=parsed.get("id"),
             latency_ms=latency_ms,
         )
@@ -344,16 +361,15 @@ class InferenceRuntime:
 
     def infer(self, request: InferenceRequest) -> InferenceResult:
         started = self._now_fn()
-        reserved = 0.0
         try:
             request.validate(self.policy)
         except ValueError as exc:
             self._audit(request, "DENY", "INVALID_REQUEST", {}, started)
-            return self._denied(request, "INVALID_REQUEST", str(exc), 0.0, 0.0, started)
+            return self._denied(request, "INVALID_REQUEST", str(exc), 0.0, 0.0, False, 0, started)
 
         if request.model not in self.policy.allowed_models:
             self._audit(request, "DENY", "MODEL_NOT_ALLOWED", {}, started)
-            return self._denied(request, "MODEL_NOT_ALLOWED", request.model, 0.0, 0.0, started)
+            return self._denied(request, "MODEL_NOT_ALLOWED", request.model, 0.0, 0.0, False, 0, started)
 
         existing = self.store.get_inference(request.request_id)
         if existing is not None:
@@ -364,56 +380,86 @@ class InferenceRuntime:
                 f"request {request.request_id} already has status {existing['status']}",
                 0.0,
                 0.0,
+                False,
+                0,
                 started,
             )
 
         reserved = self.policy.reserved_units(request)
         if reserved > self.policy.max_cost_units_per_request:
             self._audit(request, "DENY", "REQUEST_BUDGET_EXCEEDED", {"reserved": reserved}, started)
-            return self._denied(request, "REQUEST_BUDGET_EXCEEDED", str(reserved), 0.0, 0.0, started)
+            return self._denied(request, "REQUEST_BUDGET_EXCEEDED", str(reserved), 0.0, 0.0, False, 0, started)
 
+        # Reserve worst-case cost for every permitted attempt up front.  This is
+        # conservative, but it preserves the budget invariant across retries.
+        total_reserved = reserved * self.policy.max_attempts
         now = self._now_fn()
         cutoff = (now - timedelta(seconds=self.policy.window_seconds)).isoformat()
         ok, reason = self.store.try_begin_inference(
             request.request_id,
             request.model,
-            reserved,
+            total_reserved,
             self.policy.window_budget_units,
             now.isoformat(),
             cutoff,
         )
         if not ok:
-            self._audit(request, "DENY", reason, {"reserved": reserved}, started)
-            return self._denied(request, reason, reason, 0.0, 0.0, started)
+            self._audit(request, "DENY", reason, {"reserved": total_reserved}, started)
+            return self._denied(request, reason, reason, 0.0, 0.0, False, 0, started)
 
         response: InferenceResponse | None = None
         failure_reason: str | None = None
-        try:
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(self.adapter.complete, request, timeout_seconds=self.policy.request_timeout_seconds)
-                try:
-                    response = future.result(timeout=self.policy.request_timeout_seconds)
-                except FutureTimeout:
-                    future.cancel()
-                    raise InferenceDenied("TIMEOUT")
-        except InferenceDenied as exc:
-            failure_reason = exc.reason
-        except Exception as exc:  # adapter or runtime failure
-            failure_reason = "ADAPTER_ERROR"
-            self._last_adapter_error = f"{type(exc).__name__}: {exc}"
+        attempts = 0
+        adapter_error: str | None = None
+        transient = False
+        for attempt in range(1, self.policy.max_attempts + 1):
+            attempts = attempt
+            failure_reason = None  # Reset per attempt
+            adapter_error = None
+            transient = False
+            try:
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(self.adapter.complete, request, timeout_seconds=self.policy.request_timeout_seconds)
+                    try:
+                        response = future.result(timeout=self.policy.request_timeout_seconds)
+                    except FutureTimeout:
+                        future.cancel()
+                        raise InferenceDenied("TIMEOUT")
+            except InferenceDenied as exc:
+                failure_reason = exc.reason
+                transient = True
+            except Exception as exc:
+                failure_reason = "ADAPTER_ERROR"
+                adapter_error = f"{type(exc).__name__}: {exc}"
+                transient = self._is_transient(exc)
+            if failure_reason is None:
+                break
+            if not transient or attempt == self.policy.max_attempts or not self.policy.retry_on_transient:
+                break
+            if self.policy.retry_backoff_seconds:
+                time.sleep(self.policy.retry_backoff_seconds)
 
         if failure_reason is not None:
-            error = getattr(self, "_last_adapter_error", failure_reason)
-            if failure_reason != "ADAPTER_ERROR":
-                error = failure_reason
-            self.store.finish_inference(
-                request.request_id,
-                "FAILED" if failure_reason != "TIMEOUT" else "TIMED_OUT",
-                finished_at=self._now_fn().isoformat(),
-                error=error,
-            )
-            self._audit(request, "DENY", failure_reason, {"reserved": reserved, "error": error}, started)
-            return self._denied(request, failure_reason, error, reserved, reserved, started)
+            # Only finalize the inference record on the final attempt (no more retries).
+            # Transient failures that will be retried keep the reservation active.
+            is_final_attempt = not transient or attempt == self.policy.max_attempts or not self.policy.retry_on_transient
+            if is_final_attempt:
+                error = adapter_error if adapter_error is not None else failure_reason
+                status = "TIMED_OUT" if failure_reason == "TIMEOUT" else "FAILED"
+                self.store.finish_inference(
+                    request.request_id,
+                    status,
+                    finished_at=self._now_fn().isoformat(),
+                    error=f"{failure_reason}: {error}",
+                )
+                self._audit(
+                    request,
+                    "DENY",
+                    failure_reason,
+                    {"reserved": total_reserved, "attempts": attempts, "error": error},
+                    started,
+                )
+            return self._denied(request, failure_reason, error if is_final_attempt else "retry exhausted", total_reserved, total_reserved, False, attempts, started)
 
         assert response is not None
         try:
@@ -425,31 +471,32 @@ class InferenceRuntime:
                 finished_at=self._now_fn().isoformat(),
                 error=f"INVALID_RESPONSE: {exc}",
             )
-            self._audit(request, "DENY", "INVALID_RESPONSE", {"error": str(exc), "reserved": reserved}, started)
-            return self._denied(request, "INVALID_RESPONSE", str(exc), reserved, reserved, started)
+            self._audit(request, "DENY", "INVALID_RESPONSE", {"error": str(exc), "reserved": total_reserved, "attempts": attempts}, started)
+            return self._denied(request, "INVALID_RESPONSE", str(exc), total_reserved, total_reserved, False, attempts, started)
 
         actual = self.policy.cost_units(response.usage)
-        if actual > reserved + 1e-9:
+        if actual > total_reserved + 1e-9:
             self.store.finish_inference(
                 request.request_id,
                 "INVALID",
                 finished_at=self._now_fn().isoformat(),
-                error=f"USAGE_EXCEEDS_RESERVATION: {actual} > {reserved}",
+                error=f"USAGE_EXCEEDS_RESERVATION: {actual} > {total_reserved}",
             )
             self._audit(
                 request,
                 "DENY",
                 "USAGE_EXCEEDS_RESERVATION",
-                {"actual": actual, "reserved": reserved},
+                {"actual": actual, "reserved": total_reserved, "attempts": attempts},
                 started,
             )
-            return self._denied(request, "USAGE_EXCEEDS_RESERVATION", str(actual), reserved, reserved, started)
+            return self._denied(request, "USAGE_EXCEEDS_RESERVATION", str(actual), total_reserved, total_reserved, False, attempts, started)
 
         digest = self._response_digest(response)
+        cost_known = response.usage_reported
         self.store.finish_inference(
             request.request_id,
             "COMPLETED",
-            actual_units=actual,
+            actual_units=actual if cost_known else None,
             input_tokens=response.usage.input_tokens,
             output_tokens=response.usage.output_tokens,
             finished_at=self._now_fn().isoformat(),
@@ -465,10 +512,13 @@ class InferenceRuntime:
                 "finish_reason": response.finish_reason,
                 "input_tokens": response.usage.input_tokens,
                 "output_tokens": response.usage.output_tokens,
-                "reserved_units": reserved,
-                "actual_units": actual,
+                "reserved_units": total_reserved,
+                "actual_units": actual if cost_known else None,
+                "cost_known": cost_known,
+                "usage_reported": response.usage_reported,
                 "response_digest": digest,
                 "provider_request_id": response.provider_request_id,
+                "attempts": attempts,
             },
             started,
         )
@@ -478,11 +528,13 @@ class InferenceRuntime:
             response=response,
             request_id=request.request_id,
             model=response.model,
-            reserved_units=reserved,
-            charged_units=reserved,
-            actual_units=actual,
+            reserved_units=total_reserved,
+            charged_units=total_reserved,
+            actual_units=actual if cost_known else None,
+            cost_known=cost_known,
             input_tokens=response.usage.input_tokens,
             output_tokens=response.usage.output_tokens,
+            attempts=attempts,
             duration_ms=duration_ms,
         )
 
@@ -491,7 +543,7 @@ class InferenceRuntime:
             raise ValueError("response request_id mismatch")
         if response.model != request.model:
             raise ValueError("response model mismatch")
-        if self.policy.require_usage and response.usage is None:
+        if self.policy.require_usage and not response.usage_reported:
             raise ValueError("missing usage")
         if response.usage.input_tokens > self.policy.max_input_tokens:
             raise ValueError("input token count exceeds policy")
@@ -542,6 +594,14 @@ class InferenceRuntime:
             # original decision, but the store is expected to be available.
             pass
 
+    def _is_transient(self, exc: Exception) -> bool:
+        if isinstance(exc, (TimeoutError, ConnectionError, OSError)):
+            return True
+        if isinstance(exc, InferenceError):
+            message = str(exc).lower()
+            return any(token in message for token in (" 429 ", " 500 ", " 502 ", " 503 ", " 504 ", "timeout", "temporar"))
+        return False
+
     def _denied(
         self,
         request: InferenceRequest,
@@ -549,6 +609,8 @@ class InferenceRuntime:
         detail: str,
         reserved: float,
         charged: float,
+        cost_known: bool,
+        attempts: int,
         started: datetime,
     ) -> InferenceResult:
         duration_ms = (self._now_fn() - started).total_seconds() * 1000.0
@@ -560,9 +622,11 @@ class InferenceRuntime:
             model=request.model,
             reserved_units=reserved,
             charged_units=charged,
-            actual_units=0.0,
+            actual_units=None,
+            cost_known=cost_known,
             input_tokens=0,
             output_tokens=0,
+            attempts=attempts,
             duration_ms=duration_ms,
         )
 
@@ -579,5 +643,6 @@ class InferenceRuntime:
             "reserved_units": reserved,
             "input_tokens": sum(int(row.get("input_tokens") or 0) for row in completed),
             "output_tokens": sum(int(row.get("output_tokens") or 0) for row in completed),
-            "actual_units": sum(float(row.get("actual_units") or 0.0) for row in completed),
+            "actual_units": sum(float(row.get("actual_units") or 0.0) for row in completed if row.get("actual_units") is not None),
+            "cost_known_count": sum(1 for row in completed if row.get("actual_units") is not None),
         }

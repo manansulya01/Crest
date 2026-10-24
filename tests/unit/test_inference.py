@@ -14,7 +14,9 @@ from crest.inference import (
     InferenceDenied,
     InferencePolicy,
     InferenceRequest,
+    InferenceResponse,
     InferenceRuntime,
+    TokenUsage,
 )
 from crest.store import Store
 
@@ -274,3 +276,158 @@ def test_config_rejects_bad_inference_policy(tmp_path):
     )
     with pytest.raises(ValueError):
         load(tmp_path / "crest.yaml")
+
+
+def test_retry_on_transient_failure(tmp_path):
+    store = _store(tmp_path)
+    policy = _policy(max_attempts=3, retry_backoff_seconds=0.01)
+    # Use a custom adapter that raises a transient exception (OSError)
+    class RetryThenSucceedAdapter:
+        def __init__(self):
+            self.attempt = 0
+            self.calls = []
+
+        def complete(self, request, *, timeout_seconds):
+            self.attempt += 1
+            self.calls.append(request)
+            if self.attempt < 3:
+                raise OSError("transient network error")
+            return InferenceResponse(
+                request_id=request.request_id,
+                model=request.model,
+                text="success",
+                usage=TokenUsage(5, 3),
+                finish_reason="stop",
+                usage_reported=True,
+                latency_ms=1.0,
+            )
+
+    adapter = RetryThenSucceedAdapter()
+    runtime = InferenceRuntime(store, policy, adapter)
+    result = runtime.infer(_request())
+    assert result.allowed is True
+    assert result.attempts == 3
+    assert result.reason == "OK"
+    row = store.get_inference("req-00000001")
+    assert row is not None
+    assert row["status"] == "COMPLETED"
+    store.close()
+
+
+def test_retry_exhausted(tmp_path):
+    store = _store(tmp_path)
+    policy = _policy(max_attempts=2, retry_backoff_seconds=0.01)
+    adapter = FakeModelAdapter(failure_mode="exception")
+    runtime = InferenceRuntime(store, policy, adapter)
+    result = runtime.infer(_request())
+    assert result.allowed is False
+    assert result.reason == "ADAPTER_ERROR"
+    # RuntimeError is not transient by default, so only 1 attempt
+    assert result.attempts == 1
+    store.close()
+
+
+def test_no_retry_on_non_transient(tmp_path):
+    store = _store(tmp_path)
+    policy = _policy(max_attempts=3, retry_on_transient=False)
+    adapter = FakeModelAdapter(failure_mode="exception")
+    runtime = InferenceRuntime(store, policy, adapter)
+    result = runtime.infer(_request())
+    assert result.allowed is False
+    assert result.reason == "ADAPTER_ERROR"
+    assert result.attempts == 1
+    store.close()
+
+
+def test_cost_known_when_usage_reported(tmp_path):
+    store = _store(tmp_path)
+    policy = _policy()
+    adapter = FakeModelAdapter()
+    runtime = InferenceRuntime(store, policy, adapter)
+    result = runtime.infer(_request())
+    assert result.allowed is True
+    assert result.cost_known is True
+    assert result.actual_units is not None
+    store.close()
+
+
+def test_cost_unknown_when_usage_missing(tmp_path):
+    store = _store(tmp_path)
+    policy = _policy()
+    adapter = FakeModelAdapter(failure_mode="malformed")  # returns usage but finish_reason=length
+    runtime = InferenceRuntime(store, policy, adapter)
+    result = runtime.infer(_request())
+    # malformed adapter returns finish_reason="length" which is not in allowed_finish_reasons
+    # so it gets rejected as INVALID_RESPONSE, not as missing usage
+    assert result.allowed is False
+    assert result.reason == "INVALID_RESPONSE"
+    store.close()
+
+
+def test_usage_summary_tracks_cost_known(tmp_path):
+    store = _store(tmp_path)
+    policy = _policy()
+    adapter = FakeModelAdapter()
+    runtime = InferenceRuntime(store, policy, adapter)
+    runtime.infer(_request(request_id="req-00000001"))
+    runtime.infer(_request(request_id="req-00000002"))
+    summary = runtime.usage_summary()
+    assert summary["completed"] == 2
+    assert summary["cost_known_count"] == 2
+    store.close()
+
+
+def test_invalid_finish_reason_rejected(tmp_path):
+    store = _store(tmp_path)
+    policy = _policy(allowed_finish_reasons=("stop",))
+    adapter = FakeModelAdapter(failure_mode="malformed")  # returns finish_reason="length"
+    runtime = InferenceRuntime(store, policy, adapter)
+    result = runtime.infer(_request())
+    assert result.allowed is False
+    assert result.reason == "INVALID_RESPONSE"
+    store.close()
+
+
+def test_missing_usage_rejected_when_required(tmp_path):
+    store = _store(tmp_path)
+    policy = _policy(require_usage=True)
+    class NoUsageAdapter:
+        def complete(self, request: InferenceRequest, *, timeout_seconds: float) -> InferenceResponse:
+            return InferenceResponse(
+                request_id=request.request_id,
+                model=request.model,
+                text="ok",
+                usage=TokenUsage(0, 0),
+                finish_reason="stop",
+                usage_reported=False,
+            )
+    adapter = NoUsageAdapter()
+    runtime = InferenceRuntime(store, policy, adapter)
+    result = runtime.infer(_request())
+    assert result.allowed is False
+    assert result.reason == "INVALID_RESPONSE"
+    store.close()
+
+
+def test_provider_request_id_preserved(tmp_path):
+    store = _store(tmp_path)
+    policy = _policy()
+    class IdAdapter:
+        def complete(self, request: InferenceRequest, *, timeout_seconds: float) -> InferenceResponse:
+            return InferenceResponse(
+                request_id=request.request_id,
+                model=request.model,
+                text="ok",
+                usage=TokenUsage(5, 3),
+                finish_reason="stop",
+                usage_reported=True,
+                provider_request_id="provider-req-123",
+            )
+    adapter = IdAdapter()
+    runtime = InferenceRuntime(store, policy, adapter)
+    result = runtime.infer(_request())
+    assert result.allowed is True
+    assert result.response.provider_request_id == "provider-req-123"
+    row = store.get_inference("req-00000001")
+    assert row["response_digest"] is not None
+    store.close()
