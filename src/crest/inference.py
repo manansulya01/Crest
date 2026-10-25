@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import threading
 import time
 import urllib.error
@@ -599,7 +600,11 @@ class InferenceRuntime:
             return True
         if isinstance(exc, InferenceError):
             message = str(exc).lower()
-            return any(token in message for token in (" 429 ", " 500 ", " 502 ", " 503 ", " 504 ", "timeout", "temporar"))
+            # Match status codes followed by punctuation or end-of-line as well
+            # as space-delimited tokens, e.g. "provider HTTP 503: ...".
+            if any(token in message for token in ("timeout", "temporar")):
+                return True
+            return bool(re.search(r"\b(429|500|502|503|504)\b", message))
         return False
 
     def _denied(

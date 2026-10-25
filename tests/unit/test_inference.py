@@ -12,6 +12,7 @@ from crest.inference import (
     FakeModelAdapter,
     HttpChatAdapter,
     InferenceDenied,
+    InferenceError,
     InferencePolicy,
     InferenceRequest,
     InferenceResponse,
@@ -276,6 +277,60 @@ def test_config_rejects_bad_inference_policy(tmp_path):
     )
     with pytest.raises(ValueError):
         load(tmp_path / "crest.yaml")
+
+
+def test_provider_http_503_is_transient_and_retried(tmp_path):
+    store = _store(tmp_path)
+    policy = _policy(max_attempts=3, retry_backoff_seconds=0.01)
+
+    class SucceedAfter503Adapter:
+        def __init__(self):
+            self.attempt = 0
+
+        def complete(self, request, *, timeout_seconds):
+            self.attempt += 1
+            if self.attempt == 1:
+                raise InferenceError("provider HTTP 503: This model is currently experiencing high demand.")
+            return InferenceResponse(
+                request_id=request.request_id,
+                model=request.model,
+                text="recovered",
+                usage=TokenUsage(5, 3),
+                finish_reason="stop",
+                usage_reported=True,
+            )
+
+    runtime = InferenceRuntime(store, policy, SucceedAfter503Adapter())
+    result = runtime.infer(_request())
+    assert result.allowed is True
+    assert result.attempts == 2
+
+
+def test_provider_http_429_is_transient_and_retried(tmp_path):
+    store = _store(tmp_path)
+    policy = _policy(max_attempts=2, retry_backoff_seconds=0.01)
+
+    class SucceedAfter429Adapter:
+        def __init__(self):
+            self.attempt = 0
+
+        def complete(self, request, *, timeout_seconds):
+            self.attempt += 1
+            if self.attempt == 1:
+                raise InferenceError("provider HTTP 429: rate limit exceeded")
+            return InferenceResponse(
+                request_id=request.request_id,
+                model=request.model,
+                text="recovered",
+                usage=TokenUsage(5, 3),
+                finish_reason="stop",
+                usage_reported=True,
+            )
+
+    runtime = InferenceRuntime(store, policy, SucceedAfter429Adapter())
+    result = runtime.infer(_request())
+    assert result.allowed is True
+    assert result.attempts == 2
 
 
 def test_retry_on_transient_failure(tmp_path):
