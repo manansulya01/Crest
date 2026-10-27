@@ -25,7 +25,7 @@ CATEGORIES = (
 URGENCIES = ("routine", "urgent")
 REFUNDS = ("yes", "no")
 
-SPLIT_SIZES = {"calibration": 30, "pilot": 10, "heldout": 100}
+SPLIT_SIZES = {"calibration": 120, "pilot": 10, "heldout": 100}
 
 PROMPT_SYSTEM = (
     "You extract fields from support tickets. Reply ONLY with a JSON object "

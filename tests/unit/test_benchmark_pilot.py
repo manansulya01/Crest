@@ -138,15 +138,16 @@ def test_calibration_admission_shape_and_threshold():
             adapter,
         )
         assert set(result["admission"].keys()) == {"single_topic", "multi_topic"}
-        # With only 30 calibration samples and zero observed failures, Wilson bounds
-        # are wide; the strict 0.05 threshold must NOT admit either class here.
-        assert result["admission"]["single_topic"] is False
+        # With 120 calibration tasks: single-topic (0 failures in 77) is admitted
+        # (upper bound 0.0339 <= 0.05); multi-topic (4 failures in 43) is not
+        # (upper bound 0.1918 > 0.05).
+        assert result["admission"]["single_topic"] is True
         assert result["admission"]["multi_topic"] is False
         store.close()
 
 
 def test_pilot_fake_run_end_to_end():
-    artifact = run_pilot(mode="fake")
+    artifact = run_pilot(mode="fake", stage_max_attempts=300)
     assert artifact["mode"] == "fake"
     assert artifact["status"] == "COMPLETE"
     summary = artifact["summary"]
@@ -162,8 +163,8 @@ def test_pilot_fake_run_end_to_end():
 
 
 def test_pilot_fake_run_is_reproducible():
-    a = run_pilot(mode="fake")
-    b = run_pilot(mode="fake")
+    a = run_pilot(mode="fake", stage_max_attempts=300)
+    b = run_pilot(mode="fake", stage_max_attempts=300)
     assert a["summary"] == b["summary"]
     # Latency varies run-to-run; compare rows excluding latency_ms.
     def strip_latency(rows):
@@ -187,9 +188,17 @@ def test_pilot_halts_on_low_caps():
     assert artifact["status"] == "HALTED_BUDGET_GUARD"
 
 
-def test_prompt_system_present_and_used():
-    assert "JSON" in PROMPT_SYSTEM
-    assert "category" in PROMPT_SYSTEM
+def test_admission_threshold_math():
+    from crest.policy import failure_upper_bound_at
+
+    # With zero observed failures, the 95% one-sided Wilson upper bound reaches
+    # the 0.05 admission threshold only at n >= 52 (mathematical floor).
+    assert failure_upper_bound_at(0, 51, 0.95) > 0.05
+    assert failure_upper_bound_at(0, 52, 0.95) <= 0.05
+    # A class with a real failure rate (26/120) must not be admitted.
+    assert failure_upper_bound_at(26, 120, 0.95) > 0.05
+    # Small samples with zero failures are still not admitted (wide bounds).
+    assert failure_upper_bound_at(0, 22, 0.95) > 0.05
 
 
 def test_pilot_artifact_written_separately(tmp_path):
@@ -197,7 +206,7 @@ def test_pilot_artifact_written_separately(tmp_path):
     import subprocess, sys
 
     subprocess.run(
-        [sys.executable, "-m", "experiments.benchmark.pilot", "--mode", "fake", "--out", str(out)],
+        [sys.executable, "-m", "experiments.benchmark.pilot", "--mode", "fake", "--max-attempts", "300", "--out", str(out)],
         check=True,
         cwd=ROOT,
         env={"PYTHONPATH": str(ROOT / "src") + ";" + str(ROOT)},

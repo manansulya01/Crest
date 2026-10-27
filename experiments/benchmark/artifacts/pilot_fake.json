@@ -1,12 +1,12 @@
 {
   "budget_guard": {
-    "max_request_attempts": 80,
+    "max_request_attempts": 300,
     "usd_cap": 0.05
   },
   "crest_calibration": {
     "admission": {
       "multi_topic": false,
-      "single_topic": false
+      "single_topic": true
     },
     "calibration_rows": [
       {
@@ -248,34 +248,754 @@
         "input_tokens": 86,
         "output_tokens": 24,
         "task_id": "tick-0029"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 105,
+        "output_tokens": 24,
+        "task_id": "tick-0030"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 123,
+        "output_tokens": 25,
+        "task_id": "tick-0031"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 93,
+        "output_tokens": 26,
+        "task_id": "tick-0032"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 99,
+        "output_tokens": 25,
+        "task_id": "tick-0033"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 121,
+        "output_tokens": 26,
+        "task_id": "tick-0034"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 119,
+        "output_tokens": 25,
+        "task_id": "tick-0035"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 100,
+        "output_tokens": 25,
+        "task_id": "tick-0036"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": false,
+        "input_tokens": 135,
+        "output_tokens": 25,
+        "task_id": "tick-0037"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 83,
+        "output_tokens": 24,
+        "task_id": "tick-0038"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 105,
+        "output_tokens": 24,
+        "task_id": "tick-0039"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 118,
+        "output_tokens": 25,
+        "task_id": "tick-0040"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 130,
+        "output_tokens": 24,
+        "task_id": "tick-0041"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 122,
+        "output_tokens": 23,
+        "task_id": "tick-0042"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 92,
+        "output_tokens": 26,
+        "task_id": "tick-0043"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 77,
+        "output_tokens": 24,
+        "task_id": "tick-0044"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 102,
+        "output_tokens": 24,
+        "task_id": "tick-0045"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 113,
+        "output_tokens": 23,
+        "task_id": "tick-0046"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 130,
+        "output_tokens": 24,
+        "task_id": "tick-0047"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 99,
+        "output_tokens": 24,
+        "task_id": "tick-0048"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 105,
+        "output_tokens": 24,
+        "task_id": "tick-0049"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 110,
+        "output_tokens": 24,
+        "task_id": "tick-0050"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 93,
+        "output_tokens": 23,
+        "task_id": "tick-0051"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 119,
+        "output_tokens": 26,
+        "task_id": "tick-0052"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": false,
+        "input_tokens": 137,
+        "output_tokens": 25,
+        "task_id": "tick-0053"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 87,
+        "output_tokens": 23,
+        "task_id": "tick-0054"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 77,
+        "output_tokens": 24,
+        "task_id": "tick-0055"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 79,
+        "output_tokens": 24,
+        "task_id": "tick-0056"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 116,
+        "output_tokens": 23,
+        "task_id": "tick-0057"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 117,
+        "output_tokens": 25,
+        "task_id": "tick-0058"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 132,
+        "output_tokens": 24,
+        "task_id": "tick-0059"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 136,
+        "output_tokens": 24,
+        "task_id": "tick-0060"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 111,
+        "output_tokens": 24,
+        "task_id": "tick-0061"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 149,
+        "output_tokens": 26,
+        "task_id": "tick-0062"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 143,
+        "output_tokens": 26,
+        "task_id": "tick-0063"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 123,
+        "output_tokens": 26,
+        "task_id": "tick-0064"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 120,
+        "output_tokens": 26,
+        "task_id": "tick-0065"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 105,
+        "output_tokens": 24,
+        "task_id": "tick-0066"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 94,
+        "output_tokens": 25,
+        "task_id": "tick-0067"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 140,
+        "output_tokens": 23,
+        "task_id": "tick-0068"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 117,
+        "output_tokens": 24,
+        "task_id": "tick-0069"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 95,
+        "output_tokens": 22,
+        "task_id": "tick-0070"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 101,
+        "output_tokens": 25,
+        "task_id": "tick-0071"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 77,
+        "output_tokens": 24,
+        "task_id": "tick-0072"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 149,
+        "output_tokens": 26,
+        "task_id": "tick-0073"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 111,
+        "output_tokens": 24,
+        "task_id": "tick-0074"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 106,
+        "output_tokens": 24,
+        "task_id": "tick-0075"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 119,
+        "output_tokens": 26,
+        "task_id": "tick-0076"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 98,
+        "output_tokens": 26,
+        "task_id": "tick-0077"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 122,
+        "output_tokens": 25,
+        "task_id": "tick-0078"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 117,
+        "output_tokens": 22,
+        "task_id": "tick-0079"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 131,
+        "output_tokens": 24,
+        "task_id": "tick-0080"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 118,
+        "output_tokens": 25,
+        "task_id": "tick-0081"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 100,
+        "output_tokens": 24,
+        "task_id": "tick-0082"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 122,
+        "output_tokens": 26,
+        "task_id": "tick-0083"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 103,
+        "output_tokens": 25,
+        "task_id": "tick-0084"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 121,
+        "output_tokens": 25,
+        "task_id": "tick-0085"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 95,
+        "output_tokens": 25,
+        "task_id": "tick-0086"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 93,
+        "output_tokens": 22,
+        "task_id": "tick-0087"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 94,
+        "output_tokens": 25,
+        "task_id": "tick-0088"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 75,
+        "output_tokens": 24,
+        "task_id": "tick-0089"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 102,
+        "output_tokens": 25,
+        "task_id": "tick-0090"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 100,
+        "output_tokens": 25,
+        "task_id": "tick-0091"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 117,
+        "output_tokens": 22,
+        "task_id": "tick-0092"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 83,
+        "output_tokens": 23,
+        "task_id": "tick-0093"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 100,
+        "output_tokens": 25,
+        "task_id": "tick-0094"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 77,
+        "output_tokens": 24,
+        "task_id": "tick-0095"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 113,
+        "output_tokens": 24,
+        "task_id": "tick-0096"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 128,
+        "output_tokens": 24,
+        "task_id": "tick-0097"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 93,
+        "output_tokens": 26,
+        "task_id": "tick-0098"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 101,
+        "output_tokens": 26,
+        "task_id": "tick-0099"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 106,
+        "output_tokens": 25,
+        "task_id": "tick-0100"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 84,
+        "output_tokens": 23,
+        "task_id": "tick-0101"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 109,
+        "output_tokens": 23,
+        "task_id": "tick-0102"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 86,
+        "output_tokens": 23,
+        "task_id": "tick-0103"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 125,
+        "output_tokens": 26,
+        "task_id": "tick-0104"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 106,
+        "output_tokens": 24,
+        "task_id": "tick-0105"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 83,
+        "output_tokens": 24,
+        "task_id": "tick-0106"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 140,
+        "output_tokens": 24,
+        "task_id": "tick-0107"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 93,
+        "output_tokens": 25,
+        "task_id": "tick-0108"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 77,
+        "output_tokens": 24,
+        "task_id": "tick-0109"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": false,
+        "input_tokens": 129,
+        "output_tokens": 25,
+        "task_id": "tick-0110"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 125,
+        "output_tokens": 26,
+        "task_id": "tick-0111"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 76,
+        "output_tokens": 24,
+        "task_id": "tick-0112"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 96,
+        "output_tokens": 25,
+        "task_id": "tick-0113"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": false,
+        "input_tokens": 110,
+        "output_tokens": 23,
+        "task_id": "tick-0114"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 135,
+        "output_tokens": 25,
+        "task_id": "tick-0115"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 108,
+        "output_tokens": 23,
+        "task_id": "tick-0116"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 106,
+        "output_tokens": 25,
+        "task_id": "tick-0117"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 148,
+        "output_tokens": 26,
+        "task_id": "tick-0118"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 103,
+        "output_tokens": 25,
+        "task_id": "tick-0119"
       }
     ],
     "calibration_table": {
       "multi_topic": {
-        "failures": 0,
-        "failures_rate": 0.0,
-        "n": 8,
-        "upper_bound": 0.2527
+        "failures": 4,
+        "failures_rate": 0.093,
+        "n": 43,
+        "upper_bound": 0.1918
       },
       "single_topic": {
         "failures": 0,
         "failures_rate": 0.0,
-        "n": 22,
-        "upper_bound": 0.1095
+        "n": 77,
+        "upper_bound": 0.0339
       }
     },
     "cheap_model": "gemini-3.5-flash-lite",
     "large_model": "gemini-3.8-flash"
   },
-  "dataset_digest": "6014ff1e28174b1a128611139652a48a2a135cbaf6011bd69c12e6aee319177e",
+  "dataset_digest": "9e2413b63f782beb9dc28103ea349e7d225930c6103a030c184e0a0dbe2763ed",
   "dataset_is_synthetic_not_real_traffic": true,
   "guard_final": {
-    "attempts": 60,
+    "attempts": 150,
     "tokens": [
-      6497,
-      1477
+      16243,
+      3665
     ],
-    "usd_spent_est": 0.0021
+    "usd_spent_est": 0.0036
   },
   "mode": "fake",
   "models": {
@@ -289,13 +1009,13 @@
       "capability": "single_topic",
       "correct": true,
       "cost_known": true,
-      "input_tokens": 105,
-      "latency_ms": 25.7,
+      "input_tokens": 102,
+      "latency_ms": 17.5,
       "model": "gemini-3.8-flash",
-      "output_tokens": 24,
+      "output_tokens": 25,
       "status_reason": "OK",
       "strategy": "fixed_large",
-      "task_id": "tick-0030"
+      "task_id": "tick-0120"
     },
     {
       "allowed": true,
@@ -303,27 +1023,13 @@
       "capability": "multi_topic",
       "correct": true,
       "cost_known": true,
-      "input_tokens": 123,
-      "latency_ms": 23.5,
-      "model": "gemini-3.8-flash",
-      "output_tokens": 25,
-      "status_reason": "OK",
-      "strategy": "fixed_large",
-      "task_id": "tick-0031"
-    },
-    {
-      "allowed": true,
-      "attempts": 1,
-      "capability": "single_topic",
-      "correct": true,
-      "cost_known": true,
-      "input_tokens": 93,
-      "latency_ms": 22.4,
+      "input_tokens": 151,
+      "latency_ms": 19.2,
       "model": "gemini-3.8-flash",
       "output_tokens": 26,
       "status_reason": "OK",
       "strategy": "fixed_large",
-      "task_id": "tick-0032"
+      "task_id": "tick-0121"
     },
     {
       "allowed": true,
@@ -331,41 +1037,13 @@
       "capability": "single_topic",
       "correct": true,
       "cost_known": true,
-      "input_tokens": 99,
-      "latency_ms": 21.6,
+      "input_tokens": 98,
+      "latency_ms": 20.1,
       "model": "gemini-3.8-flash",
       "output_tokens": 25,
       "status_reason": "OK",
       "strategy": "fixed_large",
-      "task_id": "tick-0033"
-    },
-    {
-      "allowed": true,
-      "attempts": 1,
-      "capability": "single_topic",
-      "correct": true,
-      "cost_known": true,
-      "input_tokens": 121,
-      "latency_ms": 23.8,
-      "model": "gemini-3.8-flash",
-      "output_tokens": 26,
-      "status_reason": "OK",
-      "strategy": "fixed_large",
-      "task_id": "tick-0034"
-    },
-    {
-      "allowed": true,
-      "attempts": 1,
-      "capability": "multi_topic",
-      "correct": true,
-      "cost_known": true,
-      "input_tokens": 119,
-      "latency_ms": 22.3,
-      "model": "gemini-3.8-flash",
-      "output_tokens": 25,
-      "status_reason": "OK",
-      "strategy": "fixed_large",
-      "task_id": "tick-0035"
+      "task_id": "tick-0122"
     },
     {
       "allowed": true,
@@ -374,12 +1052,12 @@
       "correct": true,
       "cost_known": true,
       "input_tokens": 100,
-      "latency_ms": 21.5,
+      "latency_ms": 24.5,
       "model": "gemini-3.8-flash",
-      "output_tokens": 25,
+      "output_tokens": 23,
       "status_reason": "OK",
       "strategy": "fixed_large",
-      "task_id": "tick-0036"
+      "task_id": "tick-0123"
     },
     {
       "allowed": true,
@@ -387,13 +1065,13 @@
       "capability": "multi_topic",
       "correct": true,
       "cost_known": true,
-      "input_tokens": 135,
-      "latency_ms": 22.4,
+      "input_tokens": 158,
+      "latency_ms": 18.9,
       "model": "gemini-3.8-flash",
       "output_tokens": 24,
       "status_reason": "OK",
       "strategy": "fixed_large",
-      "task_id": "tick-0037"
+      "task_id": "tick-0124"
     },
     {
       "allowed": true,
@@ -402,68 +1080,12 @@
       "correct": true,
       "cost_known": true,
       "input_tokens": 83,
-      "latency_ms": 20.2,
+      "latency_ms": 18.6,
       "model": "gemini-3.8-flash",
-      "output_tokens": 24,
+      "output_tokens": 23,
       "status_reason": "OK",
       "strategy": "fixed_large",
-      "task_id": "tick-0038"
-    },
-    {
-      "allowed": true,
-      "attempts": 1,
-      "capability": "single_topic",
-      "correct": true,
-      "cost_known": true,
-      "input_tokens": 105,
-      "latency_ms": 22.0,
-      "model": "gemini-3.8-flash",
-      "output_tokens": 24,
-      "status_reason": "OK",
-      "strategy": "fixed_large",
-      "task_id": "tick-0039"
-    },
-    {
-      "allowed": true,
-      "attempts": 1,
-      "capability": "single_topic",
-      "correct": true,
-      "cost_known": true,
-      "input_tokens": 105,
-      "latency_ms": 16.9,
-      "model": "gemini-3.5-flash-lite",
-      "output_tokens": 24,
-      "status_reason": "OK",
-      "strategy": "cost_aware_small",
-      "task_id": "tick-0030"
-    },
-    {
-      "allowed": true,
-      "attempts": 1,
-      "capability": "multi_topic",
-      "correct": true,
-      "cost_known": true,
-      "input_tokens": 123,
-      "latency_ms": 23.0,
-      "model": "gemini-3.5-flash-lite",
-      "output_tokens": 25,
-      "status_reason": "OK",
-      "strategy": "cost_aware_small",
-      "task_id": "tick-0031"
-    },
-    {
-      "allowed": true,
-      "attempts": 1,
-      "capability": "single_topic",
-      "correct": true,
-      "cost_known": true,
-      "input_tokens": 93,
-      "latency_ms": 17.8,
-      "model": "gemini-3.5-flash-lite",
-      "output_tokens": 26,
-      "status_reason": "OK",
-      "strategy": "cost_aware_small",
-      "task_id": "tick-0032"
+      "task_id": "tick-0125"
     },
     {
       "allowed": true,
@@ -472,12 +1094,12 @@
       "correct": true,
       "cost_known": true,
       "input_tokens": 99,
-      "latency_ms": 20.0,
-      "model": "gemini-3.5-flash-lite",
+      "latency_ms": 20.1,
+      "model": "gemini-3.8-flash",
       "output_tokens": 25,
       "status_reason": "OK",
-      "strategy": "cost_aware_small",
-      "task_id": "tick-0033"
+      "strategy": "fixed_large",
+      "task_id": "tick-0126"
     },
     {
       "allowed": true,
@@ -485,13 +1107,55 @@
       "capability": "single_topic",
       "correct": true,
       "cost_known": true,
-      "input_tokens": 121,
-      "latency_ms": 19.8,
-      "model": "gemini-3.5-flash-lite",
+      "input_tokens": 92,
+      "latency_ms": 20.9,
+      "model": "gemini-3.8-flash",
       "output_tokens": 26,
       "status_reason": "OK",
+      "strategy": "fixed_large",
+      "task_id": "tick-0127"
+    },
+    {
+      "allowed": true,
+      "attempts": 1,
+      "capability": "single_topic",
+      "correct": true,
+      "cost_known": true,
+      "input_tokens": 103,
+      "latency_ms": 9.5,
+      "model": "gemini-3.8-flash",
+      "output_tokens": 24,
+      "status_reason": "OK",
+      "strategy": "fixed_large",
+      "task_id": "tick-0128"
+    },
+    {
+      "allowed": true,
+      "attempts": 1,
+      "capability": "single_topic",
+      "correct": true,
+      "cost_known": true,
+      "input_tokens": 85,
+      "latency_ms": 19.7,
+      "model": "gemini-3.8-flash",
+      "output_tokens": 23,
+      "status_reason": "OK",
+      "strategy": "fixed_large",
+      "task_id": "tick-0129"
+    },
+    {
+      "allowed": true,
+      "attempts": 1,
+      "capability": "single_topic",
+      "correct": true,
+      "cost_known": true,
+      "input_tokens": 102,
+      "latency_ms": 19.4,
+      "model": "gemini-3.5-flash-lite",
+      "output_tokens": 25,
+      "status_reason": "OK",
       "strategy": "cost_aware_small",
-      "task_id": "tick-0034"
+      "task_id": "tick-0120"
     },
     {
       "allowed": true,
@@ -499,13 +1163,27 @@
       "capability": "multi_topic",
       "correct": true,
       "cost_known": true,
-      "input_tokens": 119,
-      "latency_ms": 21.4,
+      "input_tokens": 151,
+      "latency_ms": 22.4,
+      "model": "gemini-3.5-flash-lite",
+      "output_tokens": 26,
+      "status_reason": "OK",
+      "strategy": "cost_aware_small",
+      "task_id": "tick-0121"
+    },
+    {
+      "allowed": true,
+      "attempts": 1,
+      "capability": "single_topic",
+      "correct": true,
+      "cost_known": true,
+      "input_tokens": 98,
+      "latency_ms": 22.2,
       "model": "gemini-3.5-flash-lite",
       "output_tokens": 25,
       "status_reason": "OK",
       "strategy": "cost_aware_small",
-      "task_id": "tick-0035"
+      "task_id": "tick-0122"
     },
     {
       "allowed": true,
@@ -514,12 +1192,12 @@
       "correct": true,
       "cost_known": true,
       "input_tokens": 100,
-      "latency_ms": 19.0,
+      "latency_ms": 25.0,
       "model": "gemini-3.5-flash-lite",
-      "output_tokens": 25,
+      "output_tokens": 23,
       "status_reason": "OK",
       "strategy": "cost_aware_small",
-      "task_id": "tick-0036"
+      "task_id": "tick-0123"
     },
     {
       "allowed": true,
@@ -527,13 +1205,13 @@
       "capability": "multi_topic",
       "correct": false,
       "cost_known": true,
-      "input_tokens": 135,
-      "latency_ms": 24.2,
+      "input_tokens": 158,
+      "latency_ms": 27.2,
       "model": "gemini-3.5-flash-lite",
       "output_tokens": 25,
       "status_reason": "OK",
       "strategy": "cost_aware_small",
-      "task_id": "tick-0037"
+      "task_id": "tick-0124"
     },
     {
       "allowed": true,
@@ -542,68 +1220,12 @@
       "correct": true,
       "cost_known": true,
       "input_tokens": 83,
-      "latency_ms": 21.9,
+      "latency_ms": 27.0,
       "model": "gemini-3.5-flash-lite",
-      "output_tokens": 24,
+      "output_tokens": 23,
       "status_reason": "OK",
       "strategy": "cost_aware_small",
-      "task_id": "tick-0038"
-    },
-    {
-      "allowed": true,
-      "attempts": 1,
-      "capability": "single_topic",
-      "correct": true,
-      "cost_known": true,
-      "input_tokens": 105,
-      "latency_ms": 17.2,
-      "model": "gemini-3.5-flash-lite",
-      "output_tokens": 24,
-      "status_reason": "OK",
-      "strategy": "cost_aware_small",
-      "task_id": "tick-0039"
-    },
-    {
-      "allowed": true,
-      "attempts": 1,
-      "capability": "single_topic",
-      "correct": true,
-      "cost_known": true,
-      "input_tokens": 105,
-      "latency_ms": 24.6,
-      "model": "gemini-3.8-flash",
-      "output_tokens": 24,
-      "status_reason": "OK",
-      "strategy": "crest_policy",
-      "task_id": "tick-0030"
-    },
-    {
-      "allowed": true,
-      "attempts": 1,
-      "capability": "multi_topic",
-      "correct": true,
-      "cost_known": true,
-      "input_tokens": 123,
-      "latency_ms": 20.1,
-      "model": "gemini-3.8-flash",
-      "output_tokens": 25,
-      "status_reason": "OK",
-      "strategy": "crest_policy",
-      "task_id": "tick-0031"
-    },
-    {
-      "allowed": true,
-      "attempts": 1,
-      "capability": "single_topic",
-      "correct": true,
-      "cost_known": true,
-      "input_tokens": 93,
-      "latency_ms": 24.1,
-      "model": "gemini-3.8-flash",
-      "output_tokens": 26,
-      "status_reason": "OK",
-      "strategy": "crest_policy",
-      "task_id": "tick-0032"
+      "task_id": "tick-0125"
     },
     {
       "allowed": true,
@@ -612,12 +1234,12 @@
       "correct": true,
       "cost_known": true,
       "input_tokens": 99,
-      "latency_ms": 20.8,
-      "model": "gemini-3.8-flash",
+      "latency_ms": 24.0,
+      "model": "gemini-3.5-flash-lite",
       "output_tokens": 25,
       "status_reason": "OK",
-      "strategy": "crest_policy",
-      "task_id": "tick-0033"
+      "strategy": "cost_aware_small",
+      "task_id": "tick-0126"
     },
     {
       "allowed": true,
@@ -625,13 +1247,55 @@
       "capability": "single_topic",
       "correct": true,
       "cost_known": true,
-      "input_tokens": 121,
-      "latency_ms": 26.0,
-      "model": "gemini-3.8-flash",
+      "input_tokens": 92,
+      "latency_ms": 26.5,
+      "model": "gemini-3.5-flash-lite",
       "output_tokens": 26,
       "status_reason": "OK",
+      "strategy": "cost_aware_small",
+      "task_id": "tick-0127"
+    },
+    {
+      "allowed": true,
+      "attempts": 1,
+      "capability": "single_topic",
+      "correct": true,
+      "cost_known": true,
+      "input_tokens": 103,
+      "latency_ms": 27.5,
+      "model": "gemini-3.5-flash-lite",
+      "output_tokens": 24,
+      "status_reason": "OK",
+      "strategy": "cost_aware_small",
+      "task_id": "tick-0128"
+    },
+    {
+      "allowed": true,
+      "attempts": 1,
+      "capability": "single_topic",
+      "correct": true,
+      "cost_known": true,
+      "input_tokens": 85,
+      "latency_ms": 25.1,
+      "model": "gemini-3.5-flash-lite",
+      "output_tokens": 23,
+      "status_reason": "OK",
+      "strategy": "cost_aware_small",
+      "task_id": "tick-0129"
+    },
+    {
+      "allowed": true,
+      "attempts": 1,
+      "capability": "single_topic",
+      "correct": true,
+      "cost_known": true,
+      "input_tokens": 102,
+      "latency_ms": 23.3,
+      "model": "gemini-3.5-flash-lite",
+      "output_tokens": 25,
+      "status_reason": "OK",
       "strategy": "crest_policy",
-      "task_id": "tick-0034"
+      "task_id": "tick-0120"
     },
     {
       "allowed": true,
@@ -639,13 +1303,27 @@
       "capability": "multi_topic",
       "correct": true,
       "cost_known": true,
-      "input_tokens": 119,
-      "latency_ms": 26.9,
+      "input_tokens": 151,
+      "latency_ms": 18.7,
       "model": "gemini-3.8-flash",
+      "output_tokens": 26,
+      "status_reason": "OK",
+      "strategy": "crest_policy",
+      "task_id": "tick-0121"
+    },
+    {
+      "allowed": true,
+      "attempts": 1,
+      "capability": "single_topic",
+      "correct": true,
+      "cost_known": true,
+      "input_tokens": 98,
+      "latency_ms": 19.5,
+      "model": "gemini-3.5-flash-lite",
       "output_tokens": 25,
       "status_reason": "OK",
       "strategy": "crest_policy",
-      "task_id": "tick-0035"
+      "task_id": "tick-0122"
     },
     {
       "allowed": true,
@@ -654,12 +1332,12 @@
       "correct": true,
       "cost_known": true,
       "input_tokens": 100,
-      "latency_ms": 26.1,
-      "model": "gemini-3.8-flash",
-      "output_tokens": 25,
+      "latency_ms": 22.8,
+      "model": "gemini-3.5-flash-lite",
+      "output_tokens": 23,
       "status_reason": "OK",
       "strategy": "crest_policy",
-      "task_id": "tick-0036"
+      "task_id": "tick-0123"
     },
     {
       "allowed": true,
@@ -667,13 +1345,13 @@
       "capability": "multi_topic",
       "correct": true,
       "cost_known": true,
-      "input_tokens": 135,
-      "latency_ms": 21.4,
+      "input_tokens": 158,
+      "latency_ms": 25.7,
       "model": "gemini-3.8-flash",
       "output_tokens": 24,
       "status_reason": "OK",
       "strategy": "crest_policy",
-      "task_id": "tick-0037"
+      "task_id": "tick-0124"
     },
     {
       "allowed": true,
@@ -682,12 +1360,12 @@
       "correct": true,
       "cost_known": true,
       "input_tokens": 83,
-      "latency_ms": 25.1,
-      "model": "gemini-3.8-flash",
-      "output_tokens": 24,
+      "latency_ms": 22.6,
+      "model": "gemini-3.5-flash-lite",
+      "output_tokens": 23,
       "status_reason": "OK",
       "strategy": "crest_policy",
-      "task_id": "tick-0038"
+      "task_id": "tick-0125"
     },
     {
       "allowed": true,
@@ -695,13 +1373,55 @@
       "capability": "single_topic",
       "correct": true,
       "cost_known": true,
-      "input_tokens": 105,
-      "latency_ms": 22.9,
-      "model": "gemini-3.8-flash",
+      "input_tokens": 99,
+      "latency_ms": 24.7,
+      "model": "gemini-3.5-flash-lite",
+      "output_tokens": 25,
+      "status_reason": "OK",
+      "strategy": "crest_policy",
+      "task_id": "tick-0126"
+    },
+    {
+      "allowed": true,
+      "attempts": 1,
+      "capability": "single_topic",
+      "correct": true,
+      "cost_known": true,
+      "input_tokens": 92,
+      "latency_ms": 24.2,
+      "model": "gemini-3.5-flash-lite",
+      "output_tokens": 26,
+      "status_reason": "OK",
+      "strategy": "crest_policy",
+      "task_id": "tick-0127"
+    },
+    {
+      "allowed": true,
+      "attempts": 1,
+      "capability": "single_topic",
+      "correct": true,
+      "cost_known": true,
+      "input_tokens": 103,
+      "latency_ms": 23.1,
+      "model": "gemini-3.5-flash-lite",
       "output_tokens": 24,
       "status_reason": "OK",
       "strategy": "crest_policy",
-      "task_id": "tick-0039"
+      "task_id": "tick-0128"
+    },
+    {
+      "allowed": true,
+      "attempts": 1,
+      "capability": "single_topic",
+      "correct": true,
+      "cost_known": true,
+      "input_tokens": 85,
+      "latency_ms": 28.3,
+      "model": "gemini-3.5-flash-lite",
+      "output_tokens": 23,
+      "status_reason": "OK",
+      "strategy": "crest_policy",
+      "task_id": "tick-0129"
     }
   ],
   "plan_doc": "docs/v0.7-benchmark-plan.md",
@@ -736,11 +1456,11 @@
       "tasks_attempted": 10,
       "tasks_not_run": 0,
       "tasks_total": 10,
-      "total_input_tokens": 1083,
-      "total_output_tokens": 249
+      "total_input_tokens": 1071,
+      "total_output_tokens": 245
     },
     "crest_policy": {
-      "estimated_usd_cost": 0.0006,
+      "estimated_usd_cost": 0.0003,
       "provider_denied": 0,
       "retried_attempts": 0,
       "task_success_n": 10,
@@ -748,8 +1468,8 @@
       "tasks_attempted": 10,
       "tasks_not_run": 0,
       "tasks_total": 10,
-      "total_input_tokens": 1083,
-      "total_output_tokens": 248
+      "total_input_tokens": 1071,
+      "total_output_tokens": 244
     },
     "fixed_large": {
       "estimated_usd_cost": 0.0006,
@@ -760,8 +1480,9 @@
       "tasks_attempted": 10,
       "tasks_not_run": 0,
       "tasks_total": 10,
-      "total_input_tokens": 1083,
-      "total_output_tokens": 248
+      "total_input_tokens": 1071,
+      "total_output_tokens": 244
     }
-  }
+  },
+  "task_module": "experiments.benchmark.tasks"
 }
