@@ -295,5 +295,14 @@ def score(task: Task, response_text: str) -> dict:
     return {"correct": not field_errors, "field_errors": field_errors}
 
 
+def verify(task: Task, response_text: str) -> bool:
+    """Structural verification (no gold labels): parseable JSON with all
+    required keys. Used by the cascade strategy to decide whether to escalate."""
+    parsed = parse_response_json(response_text)
+    if parsed is None:
+        return False
+    return all(key in parsed for key in RESPONSE_KEYS)
+
+
 def user_prompt(task: Task) -> str:
     return task.text

@@ -238,5 +238,14 @@ def score(task, response_text) -> dict:
     return {"correct": True, "field_errors": {}}
 
 
+def verify(task, response_text) -> bool:
+    parsed = parse_response_json(response_text)
+    if parsed is None:
+        return False
+    if any(k not in parsed for k in RESPONSE_KEYS):
+        return False
+    return _check_invariant(parsed)
+
+
 def user_prompt(task):
     return task.text
