@@ -1,0 +1,789 @@
+{
+  "budget_guard": {
+    "max_request_attempts": 80,
+    "usd_cap": 0.05
+  },
+  "crest_calibration": {
+    "admission": {
+      "multi_topic": false,
+      "single_topic": false
+    },
+    "calibration_rows": [
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 219,
+        "output_tokens": 40,
+        "task_id": "tick-0000"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 180,
+        "output_tokens": 31,
+        "task_id": "tick-0001"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 201,
+        "output_tokens": 31,
+        "task_id": "tick-0002"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 220,
+        "output_tokens": 40,
+        "task_id": "tick-0003"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 236,
+        "output_tokens": 40,
+        "task_id": "tick-0004"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 191,
+        "output_tokens": 31,
+        "task_id": "tick-0005"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 186,
+        "output_tokens": 31,
+        "task_id": "tick-0006"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 204,
+        "output_tokens": 40,
+        "task_id": "tick-0007"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 208,
+        "output_tokens": 40,
+        "task_id": "tick-0008"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 224,
+        "output_tokens": 40,
+        "task_id": "tick-0009"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 197,
+        "output_tokens": 40,
+        "task_id": "tick-0010"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 216,
+        "output_tokens": 31,
+        "task_id": "tick-0011"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 199,
+        "output_tokens": 40,
+        "task_id": "tick-0012"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 204,
+        "output_tokens": 40,
+        "task_id": "tick-0013"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 190,
+        "output_tokens": 31,
+        "task_id": "tick-0014"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 237,
+        "output_tokens": 40,
+        "task_id": "tick-0015"
+      },
+      {
+        "allowed": false,
+        "attempts": 3,
+        "correct": false,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "task_id": "tick-0016"
+      },
+      {
+        "allowed": true,
+        "attempts": 3,
+        "correct": true,
+        "input_tokens": 199,
+        "output_tokens": 40,
+        "task_id": "tick-0017"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 188,
+        "output_tokens": 31,
+        "task_id": "tick-0018"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 200,
+        "output_tokens": 31,
+        "task_id": "tick-0019"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 227,
+        "output_tokens": 40,
+        "task_id": "tick-0020"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 223,
+        "output_tokens": 40,
+        "task_id": "tick-0021"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 190,
+        "output_tokens": 31,
+        "task_id": "tick-0022"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 200,
+        "output_tokens": 40,
+        "task_id": "tick-0023"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 218,
+        "output_tokens": 40,
+        "task_id": "tick-0024"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 193,
+        "output_tokens": 31,
+        "task_id": "tick-0025"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 203,
+        "output_tokens": 31,
+        "task_id": "tick-0026"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 201,
+        "output_tokens": 31,
+        "task_id": "tick-0027"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 209,
+        "output_tokens": 40,
+        "task_id": "tick-0028"
+      },
+      {
+        "allowed": true,
+        "attempts": 1,
+        "correct": true,
+        "input_tokens": 186,
+        "output_tokens": 31,
+        "task_id": "tick-0029"
+      }
+    ],
+    "calibration_table": {
+      "multi_topic": {
+        "failures": 0,
+        "failures_rate": 0.0,
+        "n": 8,
+        "upper_bound": 0.2527
+      },
+      "single_topic": {
+        "failures": 1,
+        "failures_rate": 0.0455,
+        "n": 22,
+        "upper_bound": 0.1803
+      }
+    },
+    "cheap_model": "gemini-3.5-flash-lite",
+    "large_model": "gemini-3.8-flash"
+  },
+  "dataset_digest": "6014ff1e28174b1a128611139652a48a2a135cbaf6011bd69c12e6aee319177e",
+  "dataset_is_synthetic_not_real_traffic": true,
+  "guard_final": {
+    "attempts": 45,
+    "tokens": [
+      8021,
+      1416
+    ],
+    "usd_spent_est": 0.0014
+  },
+  "mode": "live",
+  "models": {
+    "cheap": "gemini-3.5-flash-lite",
+    "large": "gemini-3.8-flash"
+  },
+  "not_run_rows": [
+    {
+      "allowed": false,
+      "attempts": 0,
+      "capability": "single_topic",
+      "correct": null,
+      "cost_known": false,
+      "input_tokens": 0,
+      "latency_ms": 0.0,
+      "model": "gemini-3.8-flash",
+      "not_run": true,
+      "output_tokens": 0,
+      "status_reason": "MODEL_UNAVAILABLE",
+      "strategy": "fixed_large",
+      "task_id": "tick-0030"
+    },
+    {
+      "allowed": false,
+      "attempts": 0,
+      "capability": "multi_topic",
+      "correct": null,
+      "cost_known": false,
+      "input_tokens": 0,
+      "latency_ms": 0.0,
+      "model": "gemini-3.8-flash",
+      "not_run": true,
+      "output_tokens": 0,
+      "status_reason": "MODEL_UNAVAILABLE",
+      "strategy": "fixed_large",
+      "task_id": "tick-0031"
+    },
+    {
+      "allowed": false,
+      "attempts": 0,
+      "capability": "single_topic",
+      "correct": null,
+      "cost_known": false,
+      "input_tokens": 0,
+      "latency_ms": 0.0,
+      "model": "gemini-3.8-flash",
+      "not_run": true,
+      "output_tokens": 0,
+      "status_reason": "MODEL_UNAVAILABLE",
+      "strategy": "fixed_large",
+      "task_id": "tick-0032"
+    },
+    {
+      "allowed": false,
+      "attempts": 0,
+      "capability": "single_topic",
+      "correct": null,
+      "cost_known": false,
+      "input_tokens": 0,
+      "latency_ms": 0.0,
+      "model": "gemini-3.8-flash",
+      "not_run": true,
+      "output_tokens": 0,
+      "status_reason": "MODEL_UNAVAILABLE",
+      "strategy": "fixed_large",
+      "task_id": "tick-0033"
+    },
+    {
+      "allowed": false,
+      "attempts": 0,
+      "capability": "single_topic",
+      "correct": null,
+      "cost_known": false,
+      "input_tokens": 0,
+      "latency_ms": 0.0,
+      "model": "gemini-3.8-flash",
+      "not_run": true,
+      "output_tokens": 0,
+      "status_reason": "MODEL_UNAVAILABLE",
+      "strategy": "fixed_large",
+      "task_id": "tick-0034"
+    },
+    {
+      "allowed": false,
+      "attempts": 0,
+      "capability": "multi_topic",
+      "correct": null,
+      "cost_known": false,
+      "input_tokens": 0,
+      "latency_ms": 0.0,
+      "model": "gemini-3.8-flash",
+      "not_run": true,
+      "output_tokens": 0,
+      "status_reason": "MODEL_UNAVAILABLE",
+      "strategy": "fixed_large",
+      "task_id": "tick-0035"
+    },
+    {
+      "allowed": false,
+      "attempts": 0,
+      "capability": "single_topic",
+      "correct": null,
+      "cost_known": false,
+      "input_tokens": 0,
+      "latency_ms": 0.0,
+      "model": "gemini-3.8-flash",
+      "not_run": true,
+      "output_tokens": 0,
+      "status_reason": "MODEL_UNAVAILABLE",
+      "strategy": "fixed_large",
+      "task_id": "tick-0036"
+    },
+    {
+      "allowed": false,
+      "attempts": 0,
+      "capability": "multi_topic",
+      "correct": null,
+      "cost_known": false,
+      "input_tokens": 0,
+      "latency_ms": 0.0,
+      "model": "gemini-3.8-flash",
+      "not_run": true,
+      "output_tokens": 0,
+      "status_reason": "MODEL_UNAVAILABLE",
+      "strategy": "fixed_large",
+      "task_id": "tick-0037"
+    },
+    {
+      "allowed": false,
+      "attempts": 0,
+      "capability": "single_topic",
+      "correct": null,
+      "cost_known": false,
+      "input_tokens": 0,
+      "latency_ms": 0.0,
+      "model": "gemini-3.8-flash",
+      "not_run": true,
+      "output_tokens": 0,
+      "status_reason": "MODEL_UNAVAILABLE",
+      "strategy": "fixed_large",
+      "task_id": "tick-0038"
+    },
+    {
+      "allowed": false,
+      "attempts": 0,
+      "capability": "single_topic",
+      "correct": null,
+      "cost_known": false,
+      "input_tokens": 0,
+      "latency_ms": 0.0,
+      "model": "gemini-3.8-flash",
+      "not_run": true,
+      "output_tokens": 0,
+      "status_reason": "MODEL_UNAVAILABLE",
+      "strategy": "fixed_large",
+      "task_id": "tick-0039"
+    },
+    {
+      "allowed": false,
+      "attempts": 0,
+      "capability": "single_topic",
+      "correct": null,
+      "cost_known": false,
+      "input_tokens": 0,
+      "latency_ms": 0.0,
+      "model": "gemini-3.8-flash",
+      "not_run": true,
+      "output_tokens": 0,
+      "status_reason": "MODEL_UNAVAILABLE",
+      "strategy": "crest_policy",
+      "task_id": "tick-0030"
+    },
+    {
+      "allowed": false,
+      "attempts": 0,
+      "capability": "multi_topic",
+      "correct": null,
+      "cost_known": false,
+      "input_tokens": 0,
+      "latency_ms": 0.0,
+      "model": "gemini-3.8-flash",
+      "not_run": true,
+      "output_tokens": 0,
+      "status_reason": "MODEL_UNAVAILABLE",
+      "strategy": "crest_policy",
+      "task_id": "tick-0031"
+    },
+    {
+      "allowed": false,
+      "attempts": 0,
+      "capability": "single_topic",
+      "correct": null,
+      "cost_known": false,
+      "input_tokens": 0,
+      "latency_ms": 0.0,
+      "model": "gemini-3.8-flash",
+      "not_run": true,
+      "output_tokens": 0,
+      "status_reason": "MODEL_UNAVAILABLE",
+      "strategy": "crest_policy",
+      "task_id": "tick-0032"
+    },
+    {
+      "allowed": false,
+      "attempts": 0,
+      "capability": "single_topic",
+      "correct": null,
+      "cost_known": false,
+      "input_tokens": 0,
+      "latency_ms": 0.0,
+      "model": "gemini-3.8-flash",
+      "not_run": true,
+      "output_tokens": 0,
+      "status_reason": "MODEL_UNAVAILABLE",
+      "strategy": "crest_policy",
+      "task_id": "tick-0033"
+    },
+    {
+      "allowed": false,
+      "attempts": 0,
+      "capability": "single_topic",
+      "correct": null,
+      "cost_known": false,
+      "input_tokens": 0,
+      "latency_ms": 0.0,
+      "model": "gemini-3.8-flash",
+      "not_run": true,
+      "output_tokens": 0,
+      "status_reason": "MODEL_UNAVAILABLE",
+      "strategy": "crest_policy",
+      "task_id": "tick-0034"
+    },
+    {
+      "allowed": false,
+      "attempts": 0,
+      "capability": "multi_topic",
+      "correct": null,
+      "cost_known": false,
+      "input_tokens": 0,
+      "latency_ms": 0.0,
+      "model": "gemini-3.8-flash",
+      "not_run": true,
+      "output_tokens": 0,
+      "status_reason": "MODEL_UNAVAILABLE",
+      "strategy": "crest_policy",
+      "task_id": "tick-0035"
+    },
+    {
+      "allowed": false,
+      "attempts": 0,
+      "capability": "single_topic",
+      "correct": null,
+      "cost_known": false,
+      "input_tokens": 0,
+      "latency_ms": 0.0,
+      "model": "gemini-3.8-flash",
+      "not_run": true,
+      "output_tokens": 0,
+      "status_reason": "MODEL_UNAVAILABLE",
+      "strategy": "crest_policy",
+      "task_id": "tick-0036"
+    },
+    {
+      "allowed": false,
+      "attempts": 0,
+      "capability": "multi_topic",
+      "correct": null,
+      "cost_known": false,
+      "input_tokens": 0,
+      "latency_ms": 0.0,
+      "model": "gemini-3.8-flash",
+      "not_run": true,
+      "output_tokens": 0,
+      "status_reason": "MODEL_UNAVAILABLE",
+      "strategy": "crest_policy",
+      "task_id": "tick-0037"
+    },
+    {
+      "allowed": false,
+      "attempts": 0,
+      "capability": "single_topic",
+      "correct": null,
+      "cost_known": false,
+      "input_tokens": 0,
+      "latency_ms": 0.0,
+      "model": "gemini-3.8-flash",
+      "not_run": true,
+      "output_tokens": 0,
+      "status_reason": "MODEL_UNAVAILABLE",
+      "strategy": "crest_policy",
+      "task_id": "tick-0038"
+    },
+    {
+      "allowed": false,
+      "attempts": 0,
+      "capability": "single_topic",
+      "correct": null,
+      "cost_known": false,
+      "input_tokens": 0,
+      "latency_ms": 0.0,
+      "model": "gemini-3.8-flash",
+      "not_run": true,
+      "output_tokens": 0,
+      "status_reason": "MODEL_UNAVAILABLE",
+      "strategy": "crest_policy",
+      "task_id": "tick-0039"
+    }
+  ],
+  "pilot_rows": [
+    {
+      "allowed": true,
+      "attempts": 1,
+      "capability": "single_topic",
+      "correct": true,
+      "cost_known": true,
+      "input_tokens": 200,
+      "latency_ms": 12423.4,
+      "model": "gemini-3.5-flash-lite",
+      "output_tokens": 31,
+      "status_reason": "OK",
+      "strategy": "cost_aware_small",
+      "task_id": "tick-0030"
+    },
+    {
+      "allowed": true,
+      "attempts": 1,
+      "capability": "multi_topic",
+      "correct": true,
+      "cost_known": true,
+      "input_tokens": 223,
+      "latency_ms": 3712.0,
+      "model": "gemini-3.5-flash-lite",
+      "output_tokens": 40,
+      "status_reason": "OK",
+      "strategy": "cost_aware_small",
+      "task_id": "tick-0031"
+    },
+    {
+      "allowed": true,
+      "attempts": 1,
+      "capability": "single_topic",
+      "correct": true,
+      "cost_known": true,
+      "input_tokens": 198,
+      "latency_ms": 4388.5,
+      "model": "gemini-3.5-flash-lite",
+      "output_tokens": 40,
+      "status_reason": "OK",
+      "strategy": "cost_aware_small",
+      "task_id": "tick-0032"
+    },
+    {
+      "allowed": true,
+      "attempts": 1,
+      "capability": "single_topic",
+      "correct": true,
+      "cost_known": true,
+      "input_tokens": 205,
+      "latency_ms": 12942.5,
+      "model": "gemini-3.5-flash-lite",
+      "output_tokens": 40,
+      "status_reason": "OK",
+      "strategy": "cost_aware_small",
+      "task_id": "tick-0033"
+    },
+    {
+      "allowed": true,
+      "attempts": 1,
+      "capability": "single_topic",
+      "correct": true,
+      "cost_known": true,
+      "input_tokens": 218,
+      "latency_ms": 9010.6,
+      "model": "gemini-3.5-flash-lite",
+      "output_tokens": 40,
+      "status_reason": "OK",
+      "strategy": "cost_aware_small",
+      "task_id": "tick-0034"
+    },
+    {
+      "allowed": true,
+      "attempts": 1,
+      "capability": "multi_topic",
+      "correct": true,
+      "cost_known": true,
+      "input_tokens": 211,
+      "latency_ms": 11759.2,
+      "model": "gemini-3.5-flash-lite",
+      "output_tokens": 40,
+      "status_reason": "OK",
+      "strategy": "cost_aware_small",
+      "task_id": "tick-0035"
+    },
+    {
+      "allowed": true,
+      "attempts": 1,
+      "capability": "single_topic",
+      "correct": true,
+      "cost_known": true,
+      "input_tokens": 204,
+      "latency_ms": 6125.5,
+      "model": "gemini-3.5-flash-lite",
+      "output_tokens": 40,
+      "status_reason": "OK",
+      "strategy": "cost_aware_small",
+      "task_id": "tick-0036"
+    },
+    {
+      "allowed": true,
+      "attempts": 1,
+      "capability": "multi_topic",
+      "correct": true,
+      "cost_known": true,
+      "input_tokens": 226,
+      "latency_ms": 9017.7,
+      "model": "gemini-3.5-flash-lite",
+      "output_tokens": 40,
+      "status_reason": "OK",
+      "strategy": "cost_aware_small",
+      "task_id": "tick-0037"
+    },
+    {
+      "allowed": true,
+      "attempts": 1,
+      "capability": "single_topic",
+      "correct": true,
+      "cost_known": true,
+      "input_tokens": 186,
+      "latency_ms": 6806.8,
+      "model": "gemini-3.5-flash-lite",
+      "output_tokens": 31,
+      "status_reason": "OK",
+      "strategy": "cost_aware_small",
+      "task_id": "tick-0038"
+    },
+    {
+      "allowed": true,
+      "attempts": 1,
+      "capability": "single_topic",
+      "correct": true,
+      "cost_known": true,
+      "input_tokens": 201,
+      "latency_ms": 7399.1,
+      "model": "gemini-3.5-flash-lite",
+      "output_tokens": 31,
+      "status_reason": "OK",
+      "strategy": "cost_aware_small",
+      "task_id": "tick-0039"
+    }
+  ],
+  "plan_doc": "docs/v0.7-benchmark-plan.md",
+  "pricing": {
+    "actual_cost_available": false,
+    "per_model": {
+      "gemini-3.5-flash-lite": {
+        "input_usd_per_mtok": 0.1,
+        "output_usd_per_mtok": 0.4
+      },
+      "gemini-3.8-flash": {
+        "input_usd_per_mtok": 0.3,
+        "output_usd_per_mtok": 1.2
+      }
+    },
+    "source": "ASSUMPTION-UNVERIFIED: fill from provider pricing page before publishing USD claims"
+  },
+  "stage": "pilot",
+  "status": "COMPLETE",
+  "strategies": [
+    "fixed_large",
+    "cost_aware_small",
+    "crest_policy"
+  ],
+  "summary": {
+    "cost_aware_small": {
+      "estimated_usd_cost": 0.0004,
+      "provider_denied": 0,
+      "retried_attempts": 0,
+      "task_success_n": 10,
+      "task_success_rate": 1.0,
+      "tasks_attempted": 10,
+      "tasks_not_run": 0,
+      "tasks_total": 10,
+      "total_input_tokens": 2072,
+      "total_output_tokens": 373
+    },
+    "crest_policy": {
+      "estimated_usd_cost": 0.0,
+      "provider_denied": 0,
+      "retried_attempts": 0,
+      "task_success_n": 0,
+      "task_success_rate": null,
+      "tasks_attempted": 0,
+      "tasks_not_run": 10,
+      "tasks_total": 10,
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    "fixed_large": {
+      "estimated_usd_cost": 0.0,
+      "provider_denied": 0,
+      "retried_attempts": 0,
+      "task_success_n": 0,
+      "task_success_rate": null,
+      "tasks_attempted": 0,
+      "tasks_not_run": 10,
+      "tasks_total": 10,
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    }
+  }
+}

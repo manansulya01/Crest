@@ -201,17 +201,22 @@ def _run_strategy(
     return rows
 
 
-def _summarize(rows: list[dict]) -> dict:
+def _summarize(rows: list[dict], not_run_by_strategy: dict | None = None) -> dict:
+    not_run_by_strategy = not_run_by_strategy or {}
     by_strategy: dict[str, list[dict]] = {}
     for row in rows:
         by_strategy.setdefault(row["strategy"], []).append(row)
     summary = {}
-    for strategy, srows in sorted(by_strategy.items()):
+    for strategy in sorted(set(list(by_strategy) + list(not_run_by_strategy))):
+        srows = by_strategy.get(strategy, [])
         evaluated = [r for r in srows if r["allowed"]]
         scored = [r for r in evaluated if r["correct"] is not None]
         successful = [r for r in scored if r["correct"]]
+        not_run_count = len(not_run_by_strategy.get(strategy, []))
         out = {
+            "tasks_total": len(srows) + not_run_count,
             "tasks_attempted": len(srows),
+            "tasks_not_run": not_run_count,
             "task_success_n": len(successful),
             "task_success_rate": round(len(successful) / len(scored), 4) if scored else None,
             "provider_denied": len(srows) - len(evaluated),
@@ -363,7 +368,11 @@ def run(mode: str = "fake", *, stage_max_attempts: int = PILOT_MAX_REQUEST_ATTEM
         if store is not None:
             store.close()
 
-    summary = _summarize(strategy_rows)
+    not_run_by_strategy = {}
+    for r in artifact.get("not_run_rows", []):
+        not_run_by_strategy.setdefault(r["strategy"], []).append(r)
+
+    summary = _summarize(strategy_rows, not_run_by_strategy)
     artifact["pilot_rows"] = strategy_rows
     artifact["summary"] = summary
     artifact["guard_final"] = {
