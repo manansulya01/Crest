@@ -151,7 +151,7 @@ def test_pilot_fake_run_end_to_end():
     assert artifact["mode"] == "fake"
     assert artifact["status"] == "COMPLETE"
     summary = artifact["summary"]
-    assert set(summary.keys()) == {"cost_aware_small", "crest_policy", "fixed_large"}
+    assert set(summary.keys()) == {"cost_aware_small", "crest_policy", "fixed_large", "cascade"}
     # Fake cheap model misses some tasks; baselines differ in success.
     assert summary["cost_aware_small"]["task_success_rate"] <= summary["fixed_large"]["task_success_rate"]
     # CREST (strict admission) degenerates to fixed_large on this calibration size.

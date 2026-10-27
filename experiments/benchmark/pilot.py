@@ -202,6 +202,121 @@ def _run_strategy(
     return rows
 
 
+def _run_cascade(
+    runtime: InferenceRuntime,
+    guard: BudgetGuard,
+    eval_tasks,
+    tasklib,
+    run_seq_start: int,
+) -> list[dict]:
+    """Cascade strategy: try cheap, verify, escalate to large if verification fails."""
+    rows: list[dict] = []
+    verify_fn = getattr(tasklib, "verify", None)
+    for i, task in enumerate(eval_tasks):
+        # Step 1: try cheap model.
+        req_cheap = InferenceRequest(
+            request_id=make_request_id("cascade", task.task_id, f"c{i}"),
+            model=CHEAP_MODEL,
+            prompt=task.text,
+            system=getattr(tasklib, "PROMPT_SYSTEM", ""),
+            max_output_tokens=POLICY_KWARGS["max_output_tokens"],
+            agent_id="benchmark-cascade",
+        )
+        result_cheap = runtime.infer(req_cheap)
+        allowed_cheap = _observe_result(guard, result_cheap)
+
+        escalated = False
+        final_result = result_cheap
+        if not allowed_cheap:
+            escalated = True
+            req_large = InferenceRequest(
+                request_id=make_request_id("cascade", task.task_id, f"l{i}"),
+                model=LARGE_MODEL,
+                prompt=task.text,
+                system=getattr(tasklib, "PROMPT_SYSTEM", ""),
+                max_output_tokens=POLICY_KWARGS["max_output_tokens"],
+                agent_id="benchmark-cascade",
+            )
+            result_large = runtime.infer(req_large)
+            _observe_result(guard, result_large)
+            final_result = result_large
+        elif result_cheap.response is not None:
+            valid = verify_fn(task, result_cheap.response.text) if verify_fn else True
+            if not valid:
+                escalated = True
+                req_large = InferenceRequest(
+                    request_id=make_request_id("cascade", task.task_id, f"l{i}"),
+                    model=LARGE_MODEL,
+                    prompt=task.text,
+                    system=getattr(tasklib, "PROMPT_SYSTEM", ""),
+                    max_output_tokens=POLICY_KWARGS["max_output_tokens"],
+                    agent_id="benchmark-cascade",
+                )
+                result_large = runtime.infer(req_large)
+                _observe_result(guard, result_large)
+                final_result = result_large
+
+        if not escalated:
+            result_large = None
+
+        allowed = final_result.allowed
+        correct = None
+        if allowed and final_result.response is not None:
+            verdict = tasklib.score(task, final_result.response.text)
+            correct = bool(verdict["correct"])
+
+        row = {
+            "strategy": "cascade",
+            "task_id": task.task_id,
+            "model": final_result.model,
+            "allowed": final_result.allowed,
+            "status_reason": final_result.reason,
+            "attempts": (result_cheap.attempts + (result_large.attempts if (escalated and result_large is not None) else 0)),
+            "input_tokens": (result_cheap.input_tokens + (result_large.input_tokens if (escalated and result_large is not None) else 0)),
+            "output_tokens": (result_cheap.output_tokens + (result_large.output_tokens if (escalated and result_large is not None) else 0)),
+            "cost_known": final_result.cost_known,
+            "latency_ms": round(result_cheap.duration_ms + (result_large.duration_ms if (escalated and result_large is not None) else 0), 1),
+            "correct": correct,
+            "capability": capability_of(task, getattr(tasklib, "derive_features", None)),
+            "escalated": escalated,
+        }
+        rows.append(row)
+    return rows
+    rows: list[dict] = []
+    for i, task in enumerate(eval_tasks):
+        model = choose_model(task)
+        request = InferenceRequest(
+            request_id=make_request_id(strategy, task.task_id, f"s{run_seq_start + i}"),
+            model=model,
+            prompt=task.text,
+            system=getattr(tasklib, "PROMPT_SYSTEM", ""),
+            max_output_tokens=POLICY_KWARGS["max_output_tokens"],
+            agent_id=f"benchmark-{strategy}",
+        )
+        result = runtime.infer(request)
+        allowed = _observe_result(guard, result)
+        correct = None
+        if allowed:
+            verdict = tasklib.score(task, result.response.text)
+            correct = bool(verdict["correct"])
+        row = {
+            "strategy": strategy,
+            "task_id": task.task_id,
+            "model": result.model,
+            "allowed": result.allowed,
+            "status_reason": result.reason,
+            "attempts": result.attempts,
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
+            "cost_known": result.cost_known,
+            "latency_ms": round(result.duration_ms, 1),
+            "correct": correct,
+            "capability": capability_of(task, getattr(tasklib, "derive_features", None)),
+        }
+        rows.append(row)
+    return rows
+
+
 def _summarize(rows: list[dict], not_run_by_strategy: dict | None = None) -> dict:
     not_run_by_strategy = not_run_by_strategy or {}
     by_strategy: dict[str, list[dict]] = {}
@@ -254,7 +369,7 @@ def run(mode: str = "fake", *, stage_max_attempts: int = PILOT_MAX_REQUEST_ATTEM
         "dataset_digest": dataset_digest,
         "dataset_is_synthetic_not_real_traffic": True,
         "plan_doc": "docs/v0.7-benchmark-plan.md",
-        "strategies": list((MODE_LARGE, MODE_SMALL, MODE_CREST)),
+        "strategies": list((MODE_LARGE, MODE_SMALL, MODE_CREST, "cascade")),
         "models": {"cheap": CHEAP_MODEL, "large": LARGE_MODEL},
         "pricing": {"per_model": PRICING_PER_MODEL, "source": PRICING_ASSUMPTIONS_URL, "actual_cost_available": False},
         "budget_guard": {"max_request_attempts": stage_max_attempts, "usd_cap": usd_cap},
@@ -335,8 +450,12 @@ def run(mode: str = "fake", *, stage_max_attempts: int = PILOT_MAX_REQUEST_ATTEM
             MODE_CREST: router.choose_model,
         }
         live_models = (CHEAP_MODEL, LARGE_MODEL) if healthy else (CHEAP_MODEL,)
-        sweep = (MODE_LARGE, MODE_SMALL, MODE_CREST)
+        sweep = (MODE_LARGE, MODE_SMALL, MODE_CREST, "cascade")
         for strategy in sweep:
+            if strategy == "cascade":
+                rows = _run_cascade(runtime, guard, pilot, tasklib, run_seq_start=10_000 + len(strategy_rows))
+                strategy_rows.extend(rows)
+                continue
             deferred_rows: list[dict] = []
             executed_rows: list[dict] = []
             for task in pilot:
