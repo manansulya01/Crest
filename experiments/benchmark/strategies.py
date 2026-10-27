@@ -34,9 +34,16 @@ def cost_aware_small(task: Task) -> str:  # pragma: no cover - trivial
     return "SMALL"
 
 
-def capability_of(task: Task) -> str:
-    features = derive_features(task.text)
-    return "multi_topic" if features.multi_topic else "single_topic"
+def capability_of(task: Task, features_fn=None) -> str:
+    if features_fn is None:
+        from . import tasks as _t
+        features_fn = _t.derive_features
+    features = features_fn(task.text)
+    if isinstance(features, dict):
+        multi = bool(features.get("multi_constraint") or features.get("multi_topic", False))
+    else:
+        multi = bool(getattr(features, "multi_constraint", getattr(features, "multi_topic", False)))
+    return "multi_topic" if multi else "single_topic"
 
 
 def calibrate_crest(
@@ -47,8 +54,13 @@ def calibrate_crest(
     policy: InferencePolicy,
     adapter: MultiModelAdapter,
     *,
+    score_fn=None,
+    system_prompt: str = "",
     success_threshold: float = 0.05,
 ) -> dict:
+    if score_fn is None:
+        from . import tasks as _t
+        score_fn = _t.score
     """Run the cheap model over calibration tasks, score them, and derive the
     admission table per capability class using the same failure bound used by
     CREST admission policy. Returns {"admission": {class: bool}, ...}."""
@@ -60,15 +72,13 @@ def calibrate_crest(
             request_id=f"calibrate-crest::{task.task_id}::{i}",
             model=cheap_model_name,
             prompt=task.text,
-            system=tasklib.PROMPT_SYSTEM,
+            system=system_prompt,
             max_output_tokens=policy.max_output_tokens,
             agent_id="benchmark-calibrate",
         )
         result = runtime.infer(request)
         if result.allowed and result.response is not None:
-            from .tasks import score
-
-            verdict = score(task, result.response.text)
+            verdict = score_fn(task, result.response.text)
             ok = bool(verdict["correct"])
         else:
             ok = False

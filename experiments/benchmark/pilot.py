@@ -14,6 +14,7 @@ Extending beyond the pilot requires explicit user approval.
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import sys
 import tempfile
@@ -33,7 +34,6 @@ from crest.inference import (  # noqa: E402
 )
 from crest.store import Store  # noqa: E402
 
-from . import tasks as tasklib  # noqa: E402
 from .adapters import FakeTaskModelAdapter, MultiModelAdapter, make_request_id  # noqa: E402
 from .strategies import (  # noqa: E402
     CrestRouter,
@@ -164,6 +164,7 @@ def _run_strategy(
     guard: BudgetGuard,
     eval_tasks,
     choose_model,
+    tasklib,
     run_seq_start: int,
 ) -> list[dict]:
     rows: list[dict] = []
@@ -173,7 +174,7 @@ def _run_strategy(
             request_id=make_request_id(strategy, task.task_id, f"s{run_seq_start + i}"),
             model=model,
             prompt=task.text,
-            system=tasklib.PROMPT_SYSTEM,
+            system=getattr(tasklib, "PROMPT_SYSTEM", ""),
             max_output_tokens=POLICY_KWARGS["max_output_tokens"],
             agent_id=f"benchmark-{strategy}",
         )
@@ -195,7 +196,7 @@ def _run_strategy(
             "cost_known": result.cost_known,
             "latency_ms": round(result.duration_ms, 1),
             "correct": correct,
-            "capability": capability_of(task),
+            "capability": capability_of(task, getattr(tasklib, "derive_features", None)),
         }
         rows.append(row)
     return rows
@@ -237,7 +238,9 @@ def _summarize(rows: list[dict], not_run_by_strategy: dict | None = None) -> dic
     return summary
 
 
-def run(mode: str = "fake", *, stage_max_attempts: int = PILOT_MAX_REQUEST_ATTEMPTS, usd_cap: float = PILOT_USD_CAP) -> dict:
+def run(mode: str = "fake", *, stage_max_attempts: int = PILOT_MAX_REQUEST_ATTEMPTS,
+        usd_cap: float = PILOT_USD_CAP, task_module: str = "experiments.benchmark.tasks") -> dict:
+    tasklib = importlib.import_module(task_module)
     all_tasks = tasklib.generate_tasks()
     calibration = [t for t in all_tasks if t.split == "calibration"]
     pilot = [t for t in all_tasks if t.split == "pilot"]
@@ -247,6 +250,7 @@ def run(mode: str = "fake", *, stage_max_attempts: int = PILOT_MAX_REQUEST_ATTEM
     artifact: dict = {
         "mode": mode,
         "stage": "pilot",
+        "task_module": task_module,
         "dataset_digest": dataset_digest,
         "dataset_is_synthetic_not_real_traffic": True,
         "plan_doc": "docs/v0.7-benchmark-plan.md",
@@ -310,6 +314,8 @@ def run(mode: str = "fake", *, stage_max_attempts: int = PILOT_MAX_REQUEST_ATTEM
                 store,
                 _live_policy((CHEAP_MODEL,)),
                 adapter,
+                system_prompt=getattr(tasklib, "PROMPT_SYSTEM", ""),
+                score_fn=getattr(tasklib, "score", None),
             )
             for row in crest_calibration["calibration_rows"]:
                 if row["allowed"]:
@@ -351,14 +357,14 @@ def run(mode: str = "fake", *, stage_max_attempts: int = PILOT_MAX_REQUEST_ATTEM
                             "cost_known": False,
                             "latency_ms": 0.0,
                             "correct": None,
-                            "capability": capability_of(task),
+                            "capability": capability_of(task, getattr(tasklib, "derive_features", None)),
                             "not_run": True,
                         }
                     )
             rows_to_run = [t for t in pilot if choosers[strategy](t) in live_models]
             # Preserve task order in the artifact: append deferred rows in order.
             strategy_rows.extend(
-                _run_strategy(strategy, runtime, guard, rows_to_run, choosers[strategy], run_seq_start=10_000 + len(strategy_rows))
+                _run_strategy(strategy, runtime, guard, rows_to_run, choosers[strategy], tasklib, run_seq_start=10_000 + len(strategy_rows))
             )
             if deferred_rows:
                 artifact["not_run_rows"] = artifact.get("not_run_rows", []) + deferred_rows
@@ -387,9 +393,11 @@ def run(mode: str = "fake", *, stage_max_attempts: int = PILOT_MAX_REQUEST_ATTEM
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the extraction pilot benchmark")
     parser.add_argument("--mode", choices=("fake", "live"), required=True)
+    parser.add_argument("--task-module", default="experiments.benchmark.tasks")
+    parser.add_argument("--max-attempts", type=int, default=PILOT_MAX_REQUEST_ATTEMPTS)
     parser.add_argument("--out", default=None)
     args = parser.parse_args()
-    artifact = run(mode=args.mode)
+    artifact = run(mode=args.mode, task_module=args.task_module, stage_max_attempts=args.max_attempts)
     payload = json.dumps(artifact, indent=2, sort_keys=True)
     target = Path(args.out) if args.out else None
     if target is None:
