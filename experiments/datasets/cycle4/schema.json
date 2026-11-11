@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CREST Cycle 4 Evaluation Example",
+  "type": "object",
+  "required": [
+    "task_id",
+    "category",
+    "risk_class",
+    "input",
+    "reference",
+    "correctness_criteria",
+    "ground_truth_label",
+    "label_confidence",
+    "label_method",
+    "split"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "description": "Stable SHA-256-derived identifier."
+    },
+    "category": {
+      "type": "string",
+      "enum": ["A", "B", "C", "D", "E", "F", "G"]
+    },
+    "risk_class": {
+      "type": "string",
+      "enum": ["low", "med", "high"]
+    },
+    "input": { "type": "string" },
+    "reference": { "type": "string" },
+    "correctness_criteria": { "type": "string" },
+    "ground_truth_label": {
+      "type": "string",
+      "enum": ["correct", "incorrect", "indeterminate"]
+    },
+    "label_confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "label_method": {
+      "type": "string",
+      "enum": ["deterministic", "human_adjudicated"]
+    },
+    "generator_output": { "type": ["string", "null"] },
+    "verifier_output": { "type": ["string", "null"] },
+    "gate_decision": {
+      "type": ["string", "null"],
+      "enum": ["ACCEPT", "REJECT", "INDETERMINATE", "ESCALATE", "REQUEST_MORE_EVIDENCE", null]
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "source_family": { "type": "string" },
+        "model_id": { "type": "string" },
+        "prompt_hash": { "type": "string" },
+        "decoding_params": { "type": "object" }
+      }
+    },
+    "split": {
+      "type": "string",
+      "enum": ["development", "calibration", "policy-selection", "sealed"]
+    },
+    "evaluation_date": { "type": ["string", "null"] }
+  }
+}

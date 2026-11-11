@@ -14,6 +14,16 @@ import random
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
+
+def _stable_seed(*parts: object) -> int:
+    """Process-independent seed for deterministic pseudo-random generation.
+
+    Python's built-in hash() on strings is randomized per interpreter session,
+    so anything derived from it differs between runs.  We hash explicitly with
+    SHA-256 instead, giving byte-identical results across processes and machines.
+    """
+    return int(hashlib.sha256("::".join(str(p) for p in parts).encode("utf-8")).hexdigest()[:8], 16)
+
 # ---------------------------------------------------------------------------
 # Verification actions and their properties
 # ---------------------------------------------------------------------------
@@ -105,7 +115,7 @@ def generate_vi_tasks(
             risk_level = "med"
 
         # Hidden correctness: cheap model correct with prob based on difficulty
-        cheap_rng = random.Random(hash((task_id, "cheap", seed)) & 0xFFFFFFFF)
+        cheap_rng = random.Random(_stable_seed(task_id, "cheap", seed))
         p_fail_cheap = 0.05 + 0.4 * base_difficulty
         hidden_correct = cheap_rng.random() > p_fail_cheap
 
@@ -138,7 +148,7 @@ def simulate_verify(action: VerifyAction, task: VITask, model_correct: bool, see
     Verifier has false positive (accepts bad) and false negative (rejects good)
     rates. Verifier errors may be correlated with model errors.
     """
-    rng = random.Random(hash((task.task_id, action.name, seed)) & 0xFFFFFFFF)
+    rng = random.Random(_stable_seed(task.task_id, action.name, seed))
     if model_correct:
         # Good output: verifier rejects with probability fnr
         return rng.random() > action.fnr
@@ -163,7 +173,7 @@ def strategy_always_t0(task: VITask, seed: int) -> Tuple[bool, float]:
 
 def strategy_always_t3(task: VITask, seed: int) -> Tuple[bool, float]:
     """Always run strong model + T3. Most expensive, safest."""
-    strong_correct = random.Random(hash((task.task_id, "strong", seed)) & 0xFFFFFFFF).random() > (0.01 + 0.05 * task.latent_difficulty)
+    strong_correct = random.Random(_stable_seed(task.task_id, "strong", seed)).random() > (0.01 + 0.05 * task.latent_difficulty)
     verify_pass = simulate_verify(T3, task, strong_correct, seed)
     accepted = verify_pass
     if not accepted:
@@ -179,7 +189,7 @@ def strategy_fixed_cascade(task: VITask, seed: int) -> Tuple[bool, float]:
     verify_pass = simulate_verify(T0, task, model_correct, seed)
     if not verify_pass:
         # Escalate
-        strong_correct = random.Random(hash((task.task_id, "strong", seed)) & 0xFFFFFFFF).random() > (0.01 + 0.05 * task.latent_difficulty)
+        strong_correct = random.Random(_stable_seed(task.task_id, "strong", seed)).random() > (0.01 + 0.05 * task.latent_difficulty)
         v3_pass = simulate_verify(T3, task, strong_correct, seed)
         return strong_correct and v3_pass, CHEAP_MODEL_COST + STRONG_MODEL_COST + T0_COST + T3_COST
     return model_correct, CHEAP_MODEL_COST + T0_COST
@@ -305,7 +315,7 @@ class VoVController:
         # Step 1: Run the cheap model
         model_correct = task.hidden_correct if hasattr(task, 'hidden_correct') else None
         # Simulate model correctness based on hidden difficulty
-        rng = random.Random(hash((task.task_id, "cheap", seed)) & 0xFFFFFFFF)
+        rng = random.Random(_stable_seed(task.task_id, "cheap", seed))
         p_fail = 0.05 + 0.4 * task.latent_difficulty
         model_correct = rng.random() > p_fail
 
@@ -338,7 +348,7 @@ class VoVController:
         # Step 3: Decide
         if state.rejected:
             # Escalate to strong model
-            strong_rng = random.Random(hash((task.task_id, "strong", seed)) & 0xFFFFFFFF)
+            strong_rng = random.Random(_stable_seed(task.task_id, "strong", seed))
             strong_correct = strong_rng.random() > (0.01 + 0.05 * task.latent_difficulty)
             v3_pass = simulate_verify(T3, task, strong_correct, seed)
             state.model_used = "strong"
@@ -378,14 +388,14 @@ def run_vov_experiment(
     for task in eval_tasks:
         # Always T0
         mc = task.hidden_correct if hasattr(task, 'hidden_correct') else None
-        rng = random.Random(hash((task.task_id, "cheap", seed)) & 0xFFFFFFFF)
+        rng = random.Random(_stable_seed(task.task_id, "cheap", seed))
         mc = rng.random() > (0.05 + 0.4 * task.latent_difficulty)
         v0 = simulate_verify(T0, task, mc, seed)
         accepted = v0 or True  # always accept
         results["always_t0"].append((mc and accepted, CHEAP_MODEL_COST + T0_COST))
 
         # Always T3
-        srng = random.Random(hash((task.task_id, "strong", seed)) & 0xFFFFFFFF)
+        srng = random.Random(_stable_seed(task.task_id, "strong", seed))
         sc = srng.random() > (0.01 + 0.05 * task.latent_difficulty)
         v3 = simulate_verify(T3, task, sc, seed)
         results["always_t3"].append((sc and v3, STRONG_MODEL_COST + T3_COST))
@@ -393,7 +403,7 @@ def run_vov_experiment(
         # Fixed cascade
         v0_pass = simulate_verify(T0, task, mc, seed)
         if not v0_pass:
-            srng2 = random.Random(hash((task.task_id, "strong", seed)) & 0xFFFFFFFF)
+            srng2 = random.Random(_stable_seed(task.task_id, "strong", seed))
             sc2 = srng2.random() > (0.01 + 0.05 * task.latent_difficulty)
             v3p = simulate_verify(T3, task, sc2, seed)
             results["fixed_cascade"].append((sc2 and v3p, CHEAP_MODEL_COST + STRONG_MODEL_COST + T0_COST + T3_COST))

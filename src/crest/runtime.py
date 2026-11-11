@@ -68,6 +68,7 @@ class Runtime:
         recovery: RecoveryProgram,
         test_config: VerificationConfig,
         now: datetime | None = None,
+        risk_class: str = "low",
     ) -> AdmissionDecision:
         now = now or self._now_fn()
         cap = self.capability(action_class)
@@ -93,6 +94,19 @@ class Runtime:
         if receipt.status != "VERIFIED":
             cap.transition(CapabilityState.FORBIDDEN)
             return AdmissionDecision(allow=False, reasons=(f"verification status {receipt.status}",))
+
+        # High-Risk Gate: for high-risk actions, check evidence sufficiency.
+        if risk_class == "high":
+            from .high_risk_gate import evaluate_high_risk_gate, GateDecision
+            gate_result = evaluate_high_risk_gate(
+                risk_class=risk_class,
+                evidence_sources=1,  # receipt verified = 1 source
+                has_deterministic_check=False,
+                budget_remaining=self.constitution.e_max,
+            )
+            if gate_result.decision != GateDecision.ACCEPT:
+                cap.transition(CapabilityState.FORBIDDEN)
+                return AdmissionDecision(allow=False, reasons=(f"high-risk gate: {gate_result.reason}",))
 
         cap.transition(CapabilityState.VERIFIED)
         decision = admit(
@@ -131,12 +145,30 @@ class Runtime:
         params: dict[str, Any] | None = None,
         estimated_exposure: float = 0.0,
         now: datetime | None = None,
+        risk_class: str = "low",
+        evidence_sources: int = 0,
+        has_deterministic_check: bool = False,
+        budget_remaining: float | None = None,
     ) -> ExecutionResult:
         now = now or self._now_fn()
         params = dict(params or {})
         cap = self.capability(action_class)
         if not cap.executable:
             raise SecurityError(f"action {action_class!r} not admitted (state={cap.state})")
+
+        # High-Risk Gate: for high-risk actions, check evidence sufficiency.
+        if risk_class == "high":
+            from .high_risk_gate import evaluate_high_risk_gate, GateDecision
+            gate_result = evaluate_high_risk_gate(
+                risk_class=risk_class,
+                evidence_sources=evidence_sources,
+                has_deterministic_check=has_deterministic_check,
+                budget_remaining=budget_remaining if budget_remaining is not None else self.constitution.e_max,
+            )
+            if gate_result.decision == GateDecision.ABSTAIN:
+                raise SecurityError(f"high-risk gate abstained: {gate_result.reason}")
+            if gate_result.decision == GateDecision.REJECT:
+                raise SecurityError(f"high-risk gate rejected: {gate_result.reason}")
 
         receipt = self.receipts.get(action_class)
         if receipt is None:

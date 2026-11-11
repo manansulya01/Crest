@@ -10,5 +10,6 @@ experiments/results/*.jsonl
 # Crest local runtime state and signing keys
 .crest/
 crest.yaml
-# Generated reproducibility manifests (timestamped run output)
-reproduce_manifests/
+# Web frontend
+web/node_modules/
+web/dist/

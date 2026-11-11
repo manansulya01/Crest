@@ -1,52 +1,38 @@
 # CREST Research Roadmap
 
-## Current state (2026-11-03)
+## Current state (2026-11-05, after Cycle 4)
 
-- HEAD: de08a67 (verified)
-- Full test suite: 368 passed
-- Key findings:
-  - Routing hypothesis falsified (non-circular simulation, 5 signal strengths × 5 seeds)
-  - Cascade with structural verification adds nothing (can't catch semantic errors)
-  - Admission policy is mathematically sound but too conservative
-  - Constraint-enforcement layer (budget, verification, audit) is the most defensible capability
-  - Product discovery: NARROW to verified execution with auditable evidence trails
+- HEAD: `a0fb2d3` — uncommitted (Cycle 2, 3, 4 work).
+- Full suite: 424 passed.
+- Cycle 3 result (NARROW): high-risk acceptance veto reduces risk-weighted loss by 25.9% vs the strong verifier at 81% coverage.
+- Cycle 4 result: validation design complete. Claim reconstructed and audited. Dataset protocol, statistical analysis, live probe protocol, and offline harness delivered. Pre-registered promotion criteria defined. **No live calls made. No spending.** Status: READY FOR AUTHORIZATION.
 
-## Research directions (ranked by potential impact × feasibility)
+## Research directions (ranked)
 
-### 1. Adaptive Verification (IN PROGRESS)
-- **Problem:** Verification is binary (always run or never run). No middle ground.
-- **Hypothesis:** Allocating verification effort based on task uncertainty/risk reduces
-  verification cost without reducing task success.
-- **Feasibility:** High (builds on existing verification infrastructure).
-- **Testability:** High (can simulate with existing fake models + verification tiers).
-- **Status:** Protocol to be written, experiment to be run.
+### 1. Live verification of the high-risk gate (highest value, BLOCKED on authorization)
+Implement the high-risk gate as a minimal runtime component and run the capped
+live probe (≤ $0.05, 10–20 tasks, `gemini-3.5-flash-lite`) to measure real
+judge FPR/FNR and error correlation with the generator. This decides whether the
+gate is real or a simulation artifact.
 
-### 2. Proof-Carrying Execution
-- **Problem:** No compact, machine-checkable certificate for why a result was accepted.
-- **Hypothesis:** Every successful execution can produce a certificate (digest of
-  request, response, validation checks, budget reservation) that can be verified
-  independently without re-executing.
-- **Feasibility:** Medium (builds on existing digest infrastructure).
-- **Testability:** High (can verify certificates independently).
-- **Status:** Not started.
+### 2. Proof-Carrying Execution (unstarted)
+Every successful execution emits a compact machine-checkable certificate.
+Cheap to build on existing digest machinery; meaningful only if live verifier
+reliability is known.
 
-### 3. Compositional Guarantees
-- **Problem:** Guarantees from individual steps don't compose into end-to-end guarantees.
-- **Hypothesis:** If each step produces a verified receipt, the composition of
-  receipts provides an end-to-end guarantee.
-- **Feasibility:** Medium.
-- **Testability:** Medium.
-- **Status:** Not started.
+### 3. Compositional Guarantees (unstarted)
+Compose per-step receipts into an end-to-end guarantee. Depends on #2 and on #1.
 
-### 4. Autonomous Recovery
-- **Problem:** Failures are handled by indiscriminate retries, not principled recovery.
-- **Hypothesis:** Classifying failures (transient, semantic, budget, validation) and
-  applying targeted recovery strategies improves success rate and reduces cost.
-- **Feasibility:** High (builds on existing retry logic).
-- **Testability:** High.
-- **Status:** Partially implemented (retry logic exists, but no failure classification).
+### 4. Autonomous Recovery with failure classification (unstarted)
+Classify failures and apply targeted recovery. Highest product-adjacent leverage;
+strongly constrained by live evidence.
+
+### 5. Honest stopping: abandon routing claims
+Routing-based cost reduction is falsified for this task class. Do not invest
+further in routing policy complexity.
 
 ## Next cycle
 
-Focus on Adaptive Verification (direction 1). Create experiment protocol, implement
-prototype, run experiment, report results.
+Cycle 4 live execution — requires explicit authorization. If unauthorized, stop
+at the evidence boundary and record the blocker. Do not run any further spend
+without approval.
