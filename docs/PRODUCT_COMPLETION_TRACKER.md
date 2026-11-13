@@ -201,8 +201,30 @@ the automated product tests where covered.
 - [x] Documentation set written
 - [x] README and web README updated honestly
 - [x] Working tree reviewed for artifacts and secrets
-- [ ] Commit and push `feat/crest-1.0-product`
-- [ ] Verify remote branch and commit hash
+- [x] Commit and push `feat/crest-1.0-product`
+- [x] Verify remote branch and commit hash
 
-Update the last two items after the release commit. Do not claim them before
-they happen.
+### Release record
+
+Pushed normally to `origin/feat/crest-1.0-product` (no force, no history
+rewrite):
+
+| Commit | Description |
+| --- | --- |
+| `3591937` | `feat(product): add CREST 1.0 engine, API, and browser launcher` |
+| `d326ceb` | `feat(web): add CREST 1.0 product site and control-plane app` |
+| `0a1ebb0` | `test(product): cover policy, budgets, approvals, gate, and recovery` |
+| `60f5100` | `docs: document the CREST 1.0 product, API, and operations` |
+
+Remote verification immediately after the push:
+
+```text
+git ls-remote origin refs/heads/feat/crest-1.0-product
+60f5100dc1d24d3cfc5276348dc7c9f55b05a81f  refs/heads/feat/crest-1.0-product
+
+git rev-parse HEAD
+60f5100dc1d24d3cfc5276348dc7c9f55b05a81f
+```
+
+Local and remote hashes matched. This tracker update is a follow-up commit on
+the same branch.
