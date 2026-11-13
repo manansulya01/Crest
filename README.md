@@ -17,6 +17,69 @@ environment families and distributions — not over "the real world".
 agent request -> CrestRuntime.check/execute -> admission decision -> adapter (fs/git/shell) -> audit
 ```
 
+## CREST 1.0 product layer
+
+CREST 1.0 ships a local-first product on top of the research runtime:
+
+- **Product site** at `/`, app at `/app`, OpenAPI docs at `/api/docs`
+- **FastAPI backend** (`crest.api:app`) with server-enforced autonomy,
+  permissions, budgets, approvals, verification, recovery, audit, and the
+  Strong High-Risk Gate
+- **React web app** with 14 app pages, light/dark themes, and real backend data
+- **Offline mock provider** that exercises success, verification failure,
+  recovery, budget exhaustion, observe-mode denial, assisted approval,
+  high-risk abstention, and custom-policy denial without network calls
+- **Browser-based desktop launcher** (`crest_desktop.py`) — not a native package
+- **39 product tests** plus the existing research test suite
+
+### Quickstart
+
+```bash
+pip install -e ".[product]"
+
+cd web
+npm install
+npm run build
+cd ..
+
+python -m uvicorn crest.api:app --host 127.0.0.1 --port 8000
+```
+
+Open <http://127.0.0.1:8000/app>. No provider keys are required. External
+provider calls and spending are disabled by default; the tested execution path
+is the offline mock provider.
+
+Or run `python crest_desktop.py` to start the server and open the app in your
+default browser.
+
+### Product documentation
+
+- [`docs/PRODUCT_GUIDE.md`](docs/PRODUCT_GUIDE.md) — concepts, autonomy,
+  budgets, approvals, verification, gate, offline demos
+- [`docs/PRODUCT_API.md`](docs/PRODUCT_API.md) — HTTP API reference
+- [`docs/PRODUCT_ARCHITECTURE.md`](docs/PRODUCT_ARCHITECTURE.md) — product
+  architecture and persistence
+- [`docs/PRODUCT_OPERATIONS.md`](docs/PRODUCT_OPERATIONS.md) — install, run,
+  backup, upgrade, troubleshooting
+- [`docs/PRODUCT_COMPLETION_TRACKER.md`](docs/PRODUCT_COMPLETION_TRACKER.md) —
+  requirement-by-requirement validation record
+- [`docs/CREST_1_0_INSTALLATION.md`](docs/CREST_1_0_INSTALLATION.md) —
+  installation guide
+
+### Honest limits
+
+CREST 1.0 is Level 3 — supervised personal use, not a multi-tenant production
+service. Evidence is content-addressed but not signed. Live external providers
+were not validated in this release. The desktop launcher is browser-based. The
+Strong High-Risk Gate abstains on high-risk tasks when independent evidence is
+insufficient; with mock-only evidence it will abstain by design.
+
+## Research runtime (preserved)
+
+The sections below describe the original research runtime, its evidence model,
+benchmarks, experiments, and historical results. They remain part of the
+repository and are not replaced by the product layer.
+
 ## What it enforces
 
 - Deterministic admission over persisted capabilities, receipts, exposure budget, scope
