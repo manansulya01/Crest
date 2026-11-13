@@ -1,4 +1,4 @@
 """Crest: capability admission through independently verified recoverability."""
 
-__version__ = "0.5.0"
+__version__ = "1.0.0"
 
