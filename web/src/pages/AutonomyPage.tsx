@@ -4,6 +4,7 @@ import { api } from '../lib/api';
 import { titleCase } from '../lib/format';
 import { useApi } from '../lib/useApi';
 import { useToast } from '../lib/toast';
+import type { OperatingModeId } from '../lib/types';
 import { Icon } from '../components/Icons';
 import {
   Badge,
@@ -18,12 +19,33 @@ import {
 export function AutonomyPage() {
   const { notify } = useToast();
   const autonomy = useApi(() => api.autonomy(), []);
+  const modesState = useApi(() => api.modes.get(), []);
   const [maxLevel, setMaxLevel] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [modeBusy, setModeBusy] = useState(false);
+  const [modeDraft, setModeDraft] = useState<OperatingModeId | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [modeError, setModeError] = useState<string | null>(null);
 
   const settings = autonomy.data?.settings;
   const effectiveMax = maxLevel ?? settings?.max_autonomy_level ?? 3;
+  const currentMode = modeDraft ?? modesState.data?.current ?? settings?.operating_mode ?? 'supervised';
+
+  async function saveMode() {
+    setModeBusy(true);
+    setModeError(null);
+    try {
+      await api.modes.set(currentMode);
+      notify('Operating mode updated.', 'success');
+      setModeDraft(null);
+      autonomy.reload();
+      modesState.reload();
+    } catch (caught) {
+      setModeError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setModeBusy(false);
+    }
+  }
 
   async function saveMax() {
     if (!settings) return;
@@ -58,7 +80,58 @@ export function AutonomyPage() {
       />
 
       {autonomy.error ? <ErrorState message={autonomy.error} onRetry={autonomy.reload} /> : null}
+      {modesState.error ? <ErrorState message={modesState.error} onRetry={modesState.reload} /> : null}
       {autonomy.loading && !autonomy.data ? <LoadingBlock label="Loading autonomy policy…" /> : null}
+
+      {modesState.data ? (
+        <Card
+          title="Operating mode"
+          subtitle="A server-enforced stance that applies to every task. Manual and Supervised gate more actions; Bounded autonomous still gates high-risk work."
+          actions={
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => void saveMode()}
+              disabled={modeBusy || currentMode === modesState.data.current}
+            >
+              {modeBusy ? 'Saving…' : 'Apply mode'}
+            </button>
+          }
+        >
+          <div className="wizard-mode-list" role="radiogroup" aria-label="Operating mode">
+            {modesState.data.modes.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="radio"
+                aria-checked={currentMode === item.id}
+                className={`wizard-mode ${currentMode === item.id ? 'selected' : ''}`.trim()}
+                onClick={() => setModeDraft(item.id)}
+              >
+                <span className="wizard-mode-radio" />
+                <span>
+                  <span className="wizard-mode-title">
+                    <strong>{item.name}</strong>
+                    {currentMode === item.id ? <Badge tone="accent">Active</Badge> : null}
+                  </span>
+                  <span className="muted small">{item.summary}</span>
+                  {item.approval_actions.length ? (
+                    <span className="muted small">
+                     {' '}
+                      Requires approval: {item.approval_actions.map(titleCase).join(', ')}
+                    </span>
+                  ) : null}
+                </span>
+              </button>
+            ))}
+          </div>
+          {modeError ? (
+            <InlineNotice tone="danger" title="Could not change mode" icon="alert">
+              {modeError}
+            </InlineNotice>
+          ) : null}
+        </Card>
+      ) : null}
 
       {autonomy.data && settings ? (
         <>
@@ -166,6 +239,11 @@ export function AutonomyPage() {
                   </tr>
                 </thead>
                 <tbody>
+                  <tr>
+                    <td>Operating mode</td>
+                    <td>Policy module before every provider call</td>
+                    <td>Manual gates provider calls and export; bounded autonomous still gates high-risk</td>
+                  </tr>
                   <tr>
                     <td>Autonomy ceiling</td>
                     <td>Task creation, task update, every execution step</td>

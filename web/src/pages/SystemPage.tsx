@@ -62,6 +62,18 @@ export function SystemPage() {
                   <dd>CREST {data.version}</dd>
                 </div>
                 <div className="meta-row">
+                  <dt>Schema</dt>
+                  <dd>v{data.schema_version}</dd>
+                </div>
+                <div className="meta-row">
+                  <dt>Operating mode</dt>
+                  <dd>{data.control?.operating_mode ?? '—'}</dd>
+                </div>
+                <div className="meta-row">
+                  <dt>Execution</dt>
+                  <dd>{data.control?.paused ? 'Paused' : 'Running'}</dd>
+                </div>
+                <div className="meta-row">
                   <dt>Started</dt>
                   <dd>{formatDateTime(data.started_at)}</dd>
                 </div>
@@ -200,6 +212,83 @@ export function SystemPage() {
           </Card>
 
           <div className="two-col">
+            <Card title="Windows data locations" subtitle="All persistent state lives under the application data directory">
+              <dl className="meta-list compact">
+                <div className="meta-row">
+                  <dt>Data</dt>
+                  <dd className="mono wrap-anywhere">{data.paths?.data_dir ?? '—'}</dd>
+                </div>
+                <div className="meta-row">
+                  <dt>Database</dt>
+                  <dd className="mono wrap-anywhere">{data.paths?.database ?? '—'}</dd>
+                </div>
+                <div className="meta-row">
+                  <dt>Logs</dt>
+                  <dd className="mono wrap-anywhere">{data.paths?.logs ?? '—'}</dd>
+                </div>
+                <div className="meta-row">
+                  <dt>Backups</dt>
+                  <dd className="mono wrap-anywhere">{data.paths?.backups ?? '—'}</dd>
+                </div>
+              </dl>
+              <p className="page-note">
+                <Icon name="info" size={15} />
+                <span>
+                  Uninstalling the app never removes this directory. Delete it manually only when you
+                  intend to discard all local data.
+                </span>
+              </p>
+            </Card>
+
+            <Card title="Credential storage" subtitle="Secrets are encrypted at rest and never returned by the API">
+              <dl className="meta-list compact">
+                <div className="meta-row">
+                  <dt>Backend</dt>
+                  <dd><Badge tone={data.credentials?.windows_dpapi ? 'success' : 'info'}>{data.credentials?.backend ?? '—'}</Badge></dd>
+                </div>
+                <div className="meta-row">
+                  <dt>Detail</dt>
+                  <dd className="wrap-anywhere">{data.credentials?.detail ?? '—'}</dd>
+                </div>
+                {data.credentials?.providers.map((item) => (
+                  <div className="meta-row" key={item.provider_id}>
+                    <dt>{item.name}</dt>
+                    <dd>{item.configured ? item.source : 'Not configured'}</dd>
+                  </div>
+                ))}
+              </dl>
+            </Card>
+          </div>
+
+          <Card
+            title="Log files"
+            subtitle="Rotating, redacted logs. Secret material is masked before it is written."
+            actions={
+              <Link to="/app/settings" className="btn btn-xs btn-outline">
+                Log retention
+              </Link>
+            }
+          >
+            {data.logs?.files.length ? (
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead><tr><th>File</th><th>Size</th></tr></thead>
+                  <tbody>
+                    {data.logs.files.map((file) => (
+                      <tr key={file.name}>
+                        <td className="mono">{file.name}</td>
+                        <td>{formatBytes(file.size_bytes)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="muted">No log files yet.</p>
+            )}
+          </Card>
+
+          <div className="two-col">
             <Card title="Restart and interruption behavior">
               <ul className="plain-list">
                 <li>
@@ -226,8 +315,8 @@ export function SystemPage() {
                   enforced.
                 </li>
                 <li>
-                  <Icon name="lock" size={15} /> Provider keys are read from environment variables and
-                  never persisted.
+                  <Icon name="lock" size={15} /> Stored provider keys are encrypted with Windows DPAPI
+                  and never returned, logged, or exported.
                 </li>
                 <li>
                   <Icon name="lock" size={15} /> No analytics, telemetry, or remote logging is

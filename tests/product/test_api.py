@@ -20,7 +20,7 @@ def test_health_reports_version_and_database(client):
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
-    assert body["version"] == "1.0.0"
+    assert body["version"] == "1.1.0"
     assert body["database"] == "ok"
 
 
@@ -248,7 +248,7 @@ def test_task_report_and_backup_export(client):
     backup = client.get("/api/v1/export")
     assert backup.status_code == 200
     body = backup.json()
-    assert body["application"]["version"] == "1.0.0"
+    assert body["application"]["version"] == "1.1.0"
     assert len(body["tables"]["tasks"]) == 1
     assert "providers" in body
     serialized = json.dumps(body).lower()

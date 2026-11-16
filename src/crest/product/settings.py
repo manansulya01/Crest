@@ -34,11 +34,23 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "routing_fallback_enabled": False,
     "retention_enabled": False,
     "retention_days": 30,
+    # CREST 1.1 daily-use controls
+    "operating_mode": "supervised",
+    "onboarding_complete": False,
+    "execution_paused": False,
+    "provider_max_retries": 2,
+    "provider_backoff_seconds": 1.0,
+    "provider_rate_limit_per_minute": 30,
+    "backup_enabled": True,
+    "backup_interval_hours": 24,
+    "backup_keep": 10,
+    "log_retention_days": 14,
 }
 
 _ENUMS = {
     "default_risk_class": {"low", "med", "high"},
     "verification_mode": {"deterministic", "provider"},
+    "operating_mode": {"manual", "supervised", "bounded_autonomous"},
 }
 
 _RANGES = {
@@ -52,6 +64,12 @@ _RANGES = {
     "max_execution_seconds": (1.0, 3600.0),
     "max_recovery_attempts": (0, 3),
     "retention_days": (1, 3650),
+    "provider_max_retries": (0, 5),
+    "provider_backoff_seconds": (0.0, 30.0),
+    "provider_rate_limit_per_minute": (1, 600),
+    "backup_interval_hours": (1, 168),
+    "backup_keep": (1, 100),
+    "log_retention_days": (1, 365),
 }
 
 
@@ -65,7 +83,8 @@ def _parse(value: str) -> Any:
 def _coerce(key: str, value: Any) -> Any:
     if key in ("allow_external_calls", "require_approval_high_risk",
                "require_approval_external", "allow_custom_policies",
-               "routing_fallback_enabled", "retention_enabled"):
+               "routing_fallback_enabled", "retention_enabled",
+               "onboarding_complete", "execution_paused", "backup_enabled"):
         if isinstance(value, bool):
             return value
         if isinstance(value, str) and value.lower() in ("true", "1", "yes"):
@@ -75,13 +94,16 @@ def _coerce(key: str, value: Any) -> Any:
         raise ValueError(f"{key} must be a boolean")
     if key in ("default_autonomy_level", "max_autonomy_level",
                "default_token_budget", "max_token_budget",
-               "max_recovery_attempts", "retention_days"):
+               "max_recovery_attempts", "retention_days",
+               "provider_max_retries", "provider_rate_limit_per_minute",
+               "backup_interval_hours", "backup_keep", "log_retention_days"):
         try:
             return int(value)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"{key} must be an integer") from exc
     if key in ("default_budget", "max_task_budget",
-               "default_timeout_seconds", "max_execution_seconds"):
+               "default_timeout_seconds", "max_execution_seconds",
+               "provider_backoff_seconds"):
         try:
             return float(value)
         except (TypeError, ValueError) as exc:

@@ -20,6 +20,30 @@ KNOWN_ACTIONS = {
     "export",
 }
 
+OPERATING_MODES: dict[str, dict[str, Any]] = {
+    "manual": {
+        "id": "manual",
+        "name": "Manual",
+        "summary": "You direct each meaningful action. Provider calls, recovery, adaptation, and export require explicit approval.",
+        "approval_actions": ["provider_call", "recover", "adapt_plan", "adapt_model", "export"],
+        "risk_ceiling": "high",
+    },
+    "supervised": {
+        "id": "supervised",
+        "name": "Supervised",
+        "summary": "Low-risk operations may run; medium- and high-risk actions route to the approval queue.",
+        "approval_actions": [],
+        "risk_ceiling": "high",
+    },
+    "bounded_autonomous": {
+        "id": "bounded_autonomous",
+        "name": "Bounded autonomous",
+        "summary": "Explicitly permitted low- and medium-risk tasks run within budgets, timeouts, retries, and permissions. High-risk actions stay gated.",
+        "approval_actions": [],
+        "risk_ceiling": "med",
+    },
+}
+
 LEVELS: dict[int, dict[str, Any]] = {
     1: {
         "level": 1,
@@ -158,6 +182,10 @@ def level_info() -> list[dict[str, Any]]:
     return [LEVELS[i] for i in sorted(LEVELS)]
 
 
+def mode_info() -> list[dict[str, Any]]:
+    return [OPERATING_MODES[key] for key in ("manual", "supervised", "bounded_autonomous")]
+
+
 def authorize_action(
     *,
     task: dict[str, Any],
@@ -178,6 +206,9 @@ def authorize_action(
 
     risk = str(task.get("risk_class") or "low")
     custom = task.get("custom_policy") or None
+    operating_mode = str(settings.get("operating_mode") or "supervised")
+    if operating_mode not in OPERATING_MODES:
+        return PolicyDecision(False, f"UNKNOWN_OPERATING_MODE:{operating_mode}")
 
     if level == 1 and action != "plan":
         return PolicyDecision(False, "OBSERVE_MODE_NO_EXECUTION")
@@ -214,6 +245,19 @@ def authorize_action(
 
     requires_approval = False
     reasons: list[str] = []
+
+    # Operating modes are enforced here, server-side.  They can add approval
+    # requirements but can never remove the task-level, external-provider,
+    # high-risk, or Strong High-Risk Gate constraints below.
+    if operating_mode == "manual" and action in OPERATING_MODES["manual"]["approval_actions"]:
+        requires_approval = True
+        reasons.append("manual mode requires approval")
+    elif operating_mode == "supervised" and action == "provider_call" and risk in ("med", "high"):
+        requires_approval = True
+        reasons.append(f"supervised mode requires approval for {risk}-risk actions")
+    elif operating_mode == "bounded_autonomous" and action == "provider_call" and risk == "high":
+        requires_approval = True
+        reasons.append("bounded autonomous mode still gates high-risk actions")
 
     if level == 2 and action == "provider_call":
         requires_approval = True
@@ -262,6 +306,7 @@ def permissions_matrix(settings: dict[str, Any]) -> list[dict[str, Any]]:
                 "global_high_risk_approval": bool(settings.get("require_approval_high_risk")),
                 "global_external_approval": bool(settings.get("require_approval_external")),
                 "external_calls_enabled": bool(settings.get("allow_external_calls")),
+                "operating_mode": str(settings.get("operating_mode") or "supervised"),
             }
         )
     return out

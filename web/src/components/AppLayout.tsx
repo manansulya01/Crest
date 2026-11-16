@@ -2,9 +2,14 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useApi } from '../lib/useApi';
+import { useToast } from '../lib/toast';
+import type { OperatingModeId } from '../lib/types';
 import { Icon } from '../components/Icons';
 import type { IconName } from '../components/Icons';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { SetupWizard } from './SetupWizard';
+import { ConfirmDialog } from './Modal';
+import { Badge } from './UI';
 
 interface NavItem {
   to: string;
@@ -48,6 +53,18 @@ const groups: Array<{ label: string; items: NavItem[] }> = [
   },
 ];
 
+const MODE_LABELS: Record<OperatingModeId, string> = {
+  manual: 'Manual',
+  supervised: 'Supervised',
+  bounded_autonomous: 'Bounded autonomous',
+};
+
+const MODE_TONES: Record<OperatingModeId, 'warn' | 'accent' | 'success'> = {
+  manual: 'warn',
+  supervised: 'accent',
+  bounded_autonomous: 'success',
+};
+
 function BrandMark() {
   return (
     <svg className="brand-mark" viewBox="0 0 32 32" width="30" height="30" aria-hidden="true">
@@ -60,12 +77,47 @@ function BrandMark() {
 
 export function AppLayout() {
   const [open, setOpen] = useState(false);
+  const [stopConfirm, setStopConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const { notify } = useToast();
   const location = useLocation();
   const health = useApi(() => api.health(), [], { pollMs: 30000 });
+  const control = useApi(() => api.control.status(), [], { pollMs: 10000 });
 
   useEffect(() => {
     setOpen(false);
   }, [location.pathname]);
+
+  async function setPaused(paused: boolean) {
+    setBusy(true);
+    try {
+      await (paused ? api.control.pause() : api.control.resume());
+      control.reload();
+      notify(paused ? 'Execution paused. Running tasks will stop at the next checkpoint.' : 'Execution resumed.', 'success');
+    } catch (caught) {
+      notify(caught instanceof Error ? caught.message : String(caught), 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function stopAll() {
+    setBusy(true);
+    try {
+      const result = await api.control.stopAll();
+      control.reload();
+      setStopConfirm(false);
+      notify(`Stopped ${result.cancelled} active task(s).`, 'success');
+    } catch (caught) {
+      notify(caught instanceof Error ? caught.message : String(caught), 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const paused = control.data?.paused ?? false;
+  const mode = control.data?.operating_mode ?? 'supervised';
+  const active = control.data?.active_executions ?? 0;
 
   return (
     <div className={`app-shell ${open ? 'nav-open' : ''}`.trim()}>
@@ -122,7 +174,7 @@ export function AppLayout() {
             />
             <div>
               <strong>{health.error ? 'API unreachable' : health.data ? 'API online' : 'Connecting…'}</strong>
-              <small>Local · v{health.data?.version ?? '1.0.0'}</small>
+              <small>Local · v{health.data?.version ?? '1.1.0'}</small>
             </div>
           </div>
           <Link to="/" className="sidebar-site-link">
@@ -147,8 +199,36 @@ export function AppLayout() {
             <span className="topbar-context">
               <Icon name="lock" size={14} /> Local-first · supervised use
             </span>
+            <Link to="/app/autonomy" className="topbar-mode" aria-label="Change operating mode">
+              <Badge tone={MODE_TONES[mode]} dot>{MODE_LABELS[mode]}</Badge>
+            </Link>
+            {paused ? (
+              <Badge tone="warn" dot>Paused</Badge>
+            ) : active > 0 ? (
+              <Badge tone="info" dot>{active} active</Badge>
+            ) : null}
           </div>
           <div className="topbar-right">
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm control-button"
+              onClick={() => void setPaused(!paused)}
+              disabled={busy}
+              title={paused ? 'Resume all execution' : 'Pause all execution'}
+            >
+              <Icon name={paused ? 'play' : 'clock'} size={15} />
+              <span>{paused ? 'Resume' : 'Pause'}</span>
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm control-button"
+              onClick={() => setStopConfirm(true)}
+              disabled={busy}
+              title="Cancel all active tasks"
+            >
+              <Icon name="x" size={15} />
+              <span>Stop all</span>
+            </button>
             <ThemeToggle />
             <Link to="/app/tasks/new" className="btn btn-primary btn-sm">
               <Icon name="plus" size={16} /> New task
@@ -159,6 +239,19 @@ export function AppLayout() {
           <Outlet />
         </main>
       </div>
+
+      <SetupWizard />
+
+      <ConfirmDialog
+        open={stopConfirm}
+        title="Stop all active tasks?"
+        description="Every pending, running, or awaiting-approval task will be cancelled. Completed work and audit history are preserved. This does not delete anything."
+        confirmLabel="Stop all tasks"
+        danger
+        busy={busy}
+        onConfirm={() => void stopAll()}
+        onClose={() => setStopConfirm(false)}
+      />
     </div>
   );
 }

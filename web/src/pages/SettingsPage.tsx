@@ -27,6 +27,11 @@ export function SettingsPage() {
   const [externalConfirm, setExternalConfirm] = useState(false);
   const [purgeConfirm, setPurgeConfirm] = useState(false);
   const [tokenDraft, setTokenDraft] = useState(getToken());
+  const backups = useApi(() => api.backups.list(), []);
+  const logs = useApi(() => api.logs(50), []);
+  const [backupNote, setBackupNote] = useState('');
+  const [restoreTarget, setRestoreTarget] = useState<string | null>(null);
+  const [verifyResult, setVerifyResult] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (settingsState.data) setDraft(settingsState.data);
@@ -122,6 +127,54 @@ export function SettingsPage() {
       notify(`Purged ${result.purged} soft-deleted task(s).`, 'success');
       setPurgeConfirm(false);
       diagnostics.reload();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function createBackup() {
+    setBusy('backup-create');
+    setError(null);
+    try {
+      const result = await api.backups.create(backupNote.trim());
+      notify(`Backup ${result.backup} created and verified.`, 'success');
+      setBackupNote('');
+      backups.reload();
+      diagnostics.reload();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function verifyBackup(name: string) {
+    setBusy(`backup-verify-${name}`);
+    setError(null);
+    try {
+      const result = await api.backups.verify(name);
+      setVerifyResult((current) => ({ ...current, [name]: result.valid }));
+      notify(result.valid ? 'Backup verified: checksum and database integrity OK.' : 'Backup verification FAILED.', result.valid ? 'success' : 'error');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function restoreBackup() {
+    if (!restoreTarget) return;
+    setBusy('backup-restore');
+    setError(null);
+    try {
+      const result = await api.backups.restore(restoreTarget);
+      notify(`Restored ${result.restored}. A pre-restore snapshot was kept.`, 'success');
+      setRestoreTarget(null);
+      backups.reload();
+      diagnostics.reload();
+      settingsState.reload();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -545,6 +598,119 @@ export function SettingsPage() {
             </label>
           </Card>
 
+          <Card
+            title="Provider resilience"
+            subtitle="Bounded retries, backoff, and a local rate limit applied to every external provider call"
+          >
+            <div className="form-grid">
+              <label className="field">
+                <span className="field-label">Max provider retries (0–5)</span>
+                <input className="input" type="number" min="0" max="5" value={draft.provider_max_retries}
+                  onChange={(event) => setField('provider_max_retries', Number(event.target.value))} />
+                <span className="field-hint">Retries apply only to transient failures (timeouts, rate limits, 5xx).</span>
+              </label>
+              <label className="field">
+                <span className="field-label">Backoff base (seconds)</span>
+                <input className="input" type="number" min="0" max="30" step="0.5" value={draft.provider_backoff_seconds}
+                  onChange={(event) => setField('provider_backoff_seconds', Number(event.target.value))} />
+              </label>
+              <label className="field">
+                <span className="field-label">Global rate limit (requests/minute)</span>
+                <input className="input" type="number" min="1" max="600" value={draft.provider_rate_limit_per_minute}
+                  onChange={(event) => setField('provider_rate_limit_per_minute', Number(event.target.value))} />
+                <span className="field-hint">Each provider may set a lower limit; the lower value always wins.</span>
+              </label>
+            </div>
+          </Card>
+
+          <Card
+            title="Backups and log retention"
+            subtitle="Verified, hash-checked SQLite snapshots. Credentials are never exported."
+            actions={
+              <button type="button" className="btn btn-outline btn-sm" onClick={() => void createBackup()} disabled={busy !== null}>
+                {busy === 'backup-create' ? 'Creating…' : 'Create backup now'}
+              </button>
+            }
+          >
+            <div className="form-grid">
+              <label className="field">
+                <span className="field-label">Automatic backups</span>
+                <select className="select" value={draft.backup_enabled ? 'on' : 'off'}
+                  onChange={(event) => setField('backup_enabled', event.target.value === 'on')}>
+                  <option value="on">Enabled</option>
+                  <option value="off">Disabled</option>
+                </select>
+              </label>
+              <label className="field">
+                <span className="field-label">Backup interval (hours)</span>
+                <input className="input" type="number" min="1" max="168" value={draft.backup_interval_hours}
+                  onChange={(event) => setField('backup_interval_hours', Number(event.target.value))} />
+              </label>
+              <label className="field">
+                <span className="field-label">Backups to keep</span>
+                <input className="input" type="number" min="1" max="100" value={draft.backup_keep}
+                  onChange={(event) => setField('backup_keep', Number(event.target.value))} />
+              </label>
+              <label className="field">
+                <span className="field-label">Log retention (days)</span>
+                <input className="input" type="number" min="1" max="365" value={draft.log_retention_days}
+                  onChange={(event) => setField('log_retention_days', Number(event.target.value))} />
+              </label>
+              <label className="field span-2">
+                <span className="field-label">Backup note</span>
+                <input className="input" value={backupNote} onChange={(event) => setBackupNote(event.target.value)} placeholder="Optional note for the next manual backup" />
+              </label>
+            </div>
+
+            <h3 className="subsection-title">Available snapshots</h3>
+            {backups.error ? <InlineNotice tone="danger" title="Could not load backups" icon="alert">{backups.error}</InlineNotice> : null}
+            {backups.data?.items.length ? (
+              <div className="backup-list">
+                {backups.data.items.map((item) => {
+                  const name = item.name ?? item.backup ?? '';
+                  return (
+                  <div className="backup-row" key={name}>
+                    <div>
+                      <strong className="mono">{name}</strong>
+                      <div className="muted small">
+                        {formatDateTime(item.created_at)} · {formatBytes(item.size_bytes)} · schema v{item.schema_version ?? '?'}
+                        {item.note ? ` · ${item.note}` : ''}
+                      </div>
+                      <div className="muted small mono">sha256 {(item.sha256 || '').slice(0, 16)}…</div>
+                    </div>
+                    <div className="backup-actions">
+                      <button type="button" className="btn btn-xs btn-outline" onClick={() => void verifyBackup(name)} disabled={busy !== null}>
+                        {busy === `backup-verify-${name}` ? 'Verifying…' : 'Verify'}
+                      </button>
+                      <button type="button" className="btn btn-xs btn-ghost" onClick={() => void api.backups.download(name)}>
+                        <Icon name="download" size={13} /> Download
+                      </button>
+                      <button type="button" className="btn btn-xs btn-ghost" onClick={() => setRestoreTarget(name)} disabled={busy !== null}>
+                        Restore…
+                      </button>
+                      {verifyResult[name] !== undefined ? (
+                        <Badge tone={verifyResult[name] ? 'success' : 'danger'}>{verifyResult[name] ? 'Valid' : 'Invalid'}</Badge>
+                      ) : null}
+                    </div>
+                  </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="muted">No snapshots yet. Create one before making significant changes.</p>
+            )}
+            <p className="muted small">
+              Snapshots are stored in <code className="inline-code wrap-anywhere">{backups.data?.directory ?? 'the backup directory'}</code>.
+              Restoring keeps a pre-restore snapshot so the operation is reversible.
+            </p>
+            {logs.data ? (
+              <p className="muted small">
+                Logs: {logs.data.files.length} file(s) in <code className="inline-code wrap-anywhere">{logs.data.directory}</code>.
+                Secrets are redacted before being written.
+              </p>
+            ) : null}
+          </Card>
+
           <Card title="Local API access" subtitle="Optional bearer token for the local API">
             <p className="muted">
               If the server starts with the <code className="inline-code">CREST_API_TOKEN</code>{' '}
@@ -675,6 +841,23 @@ export function SettingsPage() {
           notify('External calls enabled in the form. Save settings to apply.', 'info');
         }}
         onClose={() => setExternalConfirm(false)}
+      />
+
+      <ConfirmDialog
+        open={restoreTarget !== null}
+        title="Restore this backup?"
+        description={
+          <span>
+            Restoring <strong className="mono">{restoreTarget}</strong> replaces the current database.
+            A verified pre-restore snapshot is created automatically first. Running tasks will be
+            interrupted. Stored credentials remain encrypted and are preserved in the database file.
+          </span>
+        }
+        confirmLabel="Restore backup"
+        danger
+        busy={busy === 'backup-restore'}
+        onConfirm={() => void restoreBackup()}
+        onClose={() => setRestoreTarget(null)}
       />
 
       <ConfirmDialog

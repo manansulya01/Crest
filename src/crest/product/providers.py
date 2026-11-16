@@ -20,11 +20,37 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..redaction import redact_text
+
 _ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]{1,63}$")
+
+
+def _clean_error(text: str, key: str = "") -> str:
+    if key:
+        text = text.replace(key, "[REDACTED]")
+    return redact_text(text)[:512]
+
+
+def _retry_after(exc: urllib.error.HTTPError) -> float | None:
+    try:
+        raw = exc.headers.get("Retry-After") if exc.headers else None
+        if raw is None:
+            return None
+        return max(0.0, min(float(raw), 30.0))
+    except (TypeError, ValueError):
+        return None
 
 
 class ProviderError(Exception):
     """A provider failed in a way the execution engine must handle."""
+
+
+class ProviderTransientError(ProviderError):
+    """A bounded retry may succeed (timeout, rate limit, or 5xx)."""
+
+    def __init__(self, message: str, *, retry_after: float | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 @dataclass
@@ -54,8 +80,16 @@ def _cost(row: dict[str, Any], input_tokens: int, output_tokens: int) -> float:
 
 
 class BaseProvider:
-    def __init__(self, row: dict[str, Any]):
+    def __init__(
+        self,
+        row: dict[str, Any],
+        *,
+        api_key: str | None = None,
+        credential_source: str = "",
+    ):
         self.row = row
+        self._api_key = api_key or ""
+        self.credential_source = credential_source
 
     @property
     def id(self) -> str:
@@ -76,14 +110,16 @@ class BaseProvider:
 
     def key_present(self) -> bool:
         env = str(self.row.get("api_key_env") or "")
-        return bool(env and os.environ.get(env))
+        return bool(self._api_key or (env and os.environ.get(env)))
 
     def _key(self) -> str:
+        if self._api_key:
+            return self._api_key
         env = str(self.row.get("api_key_env") or "")
         key = os.environ.get(env) if env else None
         if not key:
             raise ProviderError(
-                f"API key not configured: set the {env or 'provider'} environment variable"
+                f"API key not configured: add it in Providers or set the {env or 'provider'} environment variable"
             )
         return key
 
@@ -116,7 +152,11 @@ class BaseProvider:
             "output_tokens": response.output_tokens,
             "cost": response.cost,
             "response_preview": response.text[:160],
+            "credential_source": self.credential_source or "environment",
         }
+
+    def list_remote_models(self, *, timeout_seconds: float) -> list[str]:
+        return list(self.models)
 
 
 class MockProvider(BaseProvider):
@@ -246,9 +286,14 @@ class GeminiProvider(BaseProvider):
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
             # Never include the request URL (it may contain query parameters).
-            raise ProviderError(f"Gemini HTTP {exc.code}: {body[:512]}") from exc
+            detail = _clean_error(body, key)
+            if exc.code == 429 or 500 <= exc.code < 600:
+                raise ProviderTransientError(
+                    f"Gemini HTTP {exc.code}: {detail}", retry_after=_retry_after(exc)
+                ) from exc
+            raise ProviderError(f"Gemini HTTP {exc.code}: {detail}") from exc
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            raise ProviderError(f"Gemini request failed: {type(exc).__name__}") from exc
+            raise ProviderTransientError(f"Gemini request failed: {type(exc).__name__}") from exc
         latency_ms = (time.monotonic() - started) * 1000.0
         try:
             parsed = json.loads(raw.decode("utf-8"))
@@ -283,6 +328,36 @@ class GeminiProvider(BaseProvider):
             usage_reported=bool(usage),
             finish_reason=finish,
         )
+
+    def list_remote_models(self, *, timeout_seconds: float) -> list[str]:
+        key = self._key()
+        base = str(self.row.get("base_url") or "https://generativelanguage.googleapis.com/v1beta").rstrip("/")
+        request = urllib.request.Request(
+            f"{base}/models", headers={"x-goog-api-key": key}, method="GET"
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                raw = response.read()
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            raise ProviderError(f"Gemini model list HTTP {exc.code}: {_clean_error(body, key)}") from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise ProviderTransientError(f"Gemini model list failed: {type(exc).__name__}") from exc
+        try:
+            parsed = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ProviderError("Gemini model list returned invalid JSON") from exc
+        names: list[str] = []
+        for item in parsed.get("models", []) if isinstance(parsed, dict) else []:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "")
+            if name.startswith("models/"):
+                name = name[len("models/"):]
+            methods = item.get("supportedGenerationMethods") or []
+            if name and (not methods or "generateContent" in methods):
+                names.append(name)
+        return sorted(set(names))
 
 
 class OpenAICompatibleProvider(BaseProvider):
@@ -321,9 +396,14 @@ class OpenAICompatibleProvider(BaseProvider):
                 raw = response.read()
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
-            raise ProviderError(f"Provider HTTP {exc.code}: {body[:512]}") from exc
+            detail = _clean_error(body, key)
+            if exc.code == 429 or 500 <= exc.code < 600:
+                raise ProviderTransientError(
+                    f"Provider HTTP {exc.code}: {detail}", retry_after=_retry_after(exc)
+                ) from exc
+            raise ProviderError(f"Provider HTTP {exc.code}: {detail}") from exc
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            raise ProviderError(f"Provider request failed: {type(exc).__name__}") from exc
+            raise ProviderTransientError(f"Provider request failed: {type(exc).__name__}") from exc
         latency_ms = (time.monotonic() - started) * 1000.0
         try:
             parsed = json.loads(raw.decode("utf-8"))
@@ -349,23 +429,59 @@ class OpenAICompatibleProvider(BaseProvider):
             finish_reason=finish,
         )
 
+    def list_remote_models(self, *, timeout_seconds: float) -> list[str]:
+        key = self._key()
+        base = str(self.row.get("base_url") or "").rstrip("/")
+        if not base:
+            raise ProviderError("provider base_url is not configured")
+        request = urllib.request.Request(
+            base + "/models",
+            headers={"Authorization": "Bearer " + key},
+            method="GET",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                raw = response.read()
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            raise ProviderError(f"Provider model list HTTP {exc.code}: {_clean_error(body, key)}") from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise ProviderTransientError(f"Provider model list failed: {type(exc).__name__}") from exc
+        try:
+            parsed = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ProviderError("Provider model list returned invalid JSON") from exc
+        data = parsed.get("data", []) if isinstance(parsed, dict) else []
+        names = [str(item.get("id")) for item in data if isinstance(item, dict) and item.get("id")]
+        return sorted(set(names))
 
-def build_provider(row: dict[str, Any]) -> BaseProvider:
+
+def build_provider(
+    row: dict[str, Any],
+    *,
+    api_key: str | None = None,
+    credential_source: str = "",
+) -> BaseProvider:
     kind = str(row.get("kind") or "")
+    kwargs = {"api_key": api_key, "credential_source": credential_source}
     if kind == "mock":
-        return MockProvider(row)
+        return MockProvider(row, **kwargs)
     if kind == "gemini":
-        return GeminiProvider(row)
+        return GeminiProvider(row, **kwargs)
     if kind == "openai_compatible":
-        return OpenAICompatibleProvider(row)
+        return OpenAICompatibleProvider(row, **kwargs)
     raise ProviderError(f"unknown provider kind: {kind or '(empty)'}")
 
 
-def provider_public(row: dict[str, Any]) -> dict[str, Any]:
+def provider_public(
+    row: dict[str, Any], *, credential_status: dict[str, Any] | None = None
+) -> dict[str, Any]:
     kind = str(row.get("kind") or "")
     external = kind != "mock"
     env = str(row.get("api_key_env") or "")
-    key_present = bool(env and os.environ.get(env))
+    env_present = bool(env and os.environ.get(env))
+    stored = bool(credential_status and credential_status.get("configured"))
+    key_present = stored or env_present
     if not bool(row.get("enabled")):
         status = "disabled"
     elif external and not key_present:
@@ -381,12 +497,19 @@ def provider_public(row: dict[str, Any]) -> dict[str, Any]:
         "base_url": row.get("base_url") or "",
         "api_key_env": env,
         "key_present": key_present,
+        "credential_source": "windows-dpapi" if stored else ("environment" if env_present else "none"),
         "default_model": row.get("default_model") or "",
         "models": list(row.get("models") or []),
         "input_cost_per_1k": float(row.get("input_cost_per_1k") or 0.0),
         "output_cost_per_1k": float(row.get("output_cost_per_1k") or 0.0),
         "max_output_tokens": int(row.get("max_output_tokens") or 1024),
         "timeout_seconds": float(row.get("timeout_seconds") or 60.0),
+        "retry_max": int(row.get("retry_max") if row.get("retry_max") is not None else 2),
+        "rate_limit_per_minute": int(
+            row.get("rate_limit_per_minute")
+            if row.get("rate_limit_per_minute") is not None
+            else 30
+        ),
         "status": status,
         "last_test_status": row.get("last_test_status"),
         "last_test_at": row.get("last_test_at"),
@@ -402,7 +525,8 @@ def validate_provider_update(updates: dict[str, Any]) -> dict[str, Any]:
     allowed = {
         "name", "enabled", "base_url", "api_key_env", "default_model",
         "models", "input_cost_per_1k", "output_cost_per_1k",
-        "max_output_tokens", "timeout_seconds",
+        "max_output_tokens", "timeout_seconds", "retry_max",
+        "rate_limit_per_minute",
     }
     unknown = set(updates) - allowed
     if unknown:
@@ -463,5 +587,14 @@ def validate_provider_update(updates: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError("timeout_seconds must be a number") from exc
             if not (1.0 <= number <= 600.0):
                 raise ValueError("timeout_seconds must be between 1 and 600")
+            out[key] = number
+        elif key in ("retry_max", "rate_limit_per_minute"):
+            try:
+                number = int(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{key} must be an integer") from exc
+            low, high = (0, 5) if key == "retry_max" else (1, 600)
+            if not (low <= number <= high):
+                raise ValueError(f"{key} must be between {low} and {high}")
             out[key] = number
     return out

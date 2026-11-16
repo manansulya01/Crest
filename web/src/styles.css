@@ -4860,3 +4860,308 @@ ol {
     scroll-behavior: auto !important;
   }
 }
+
+/* ---------- CREST 1.1: topbar controls & first-run wizard ---------- */
+
+.topbar-mode {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.topbar-mode:hover {
+  filter: brightness(1.08);
+}
+
+.control-button {
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .control-button span {
+    display: none;
+  }
+}
+
+.wizard-steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  list-style: none;
+  margin: 0 0 22px;
+  padding: 0;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.wizard-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+}
+
+.wizard-steps li:not(:last-child)::after {
+  content: '';
+  height: 1px;
+  background: var(--border);
+  flex: 1;
+  margin: 0 4px;
+}
+
+.wizard-steps li.active {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.wizard-steps li.done {
+  color: var(--accent);
+}
+
+.wizard-step-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  flex: 0 0 auto;
+  font-size: 11px;
+}
+
+.wizard-steps li.active .wizard-step-dot {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.wizard-steps li.done .wizard-step-dot {
+  background: var(--accent-soft);
+  border-color: var(--accent-soft-strong);
+}
+
+.wizard-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.wizard-body h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.wizard-body p {
+  margin: 0;
+  line-height: 1.6;
+  font-size: 14px;
+}
+
+.wizard-hero-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 62px;
+  height: 62px;
+  border-radius: 18px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.wizard-points {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  font-size: 13px;
+}
+
+.wizard-points > div {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--text-muted);
+}
+
+.wizard-points svg {
+  color: var(--accent);
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.wizard-mode-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wizard-mode {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.wizard-mode:hover {
+  border-color: var(--accent-soft-strong);
+}
+
+.wizard-mode.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.wizard-mode-radio {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.wizard-mode.selected .wizard-mode-radio {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 4px var(--surface);
+  background: var(--accent);
+}
+
+.wizard-mode-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.wizard-mode-title strong {
+  font-size: 14px;
+}
+
+.wizard-summary {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.wizard-summary > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 11px 14px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+
+.wizard-summary > div:last-child {
+  border-bottom: none;
+}
+
+.wizard-summary span {
+  color: var(--text-faint);
+}
+
+.wizard-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ---------- CREST 1.1: credential & usage UI ---------- */
+
+.credential-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.credential-row:last-child {
+  border-bottom: none;
+}
+
+.credential-key-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.credential-inline {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.usage-table td.error-cell {
+  color: var(--danger, #d64545);
+  max-width: 320px;
+  overflow-wrap: anywhere;
+}
+
+.backup-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.backup-row:last-child {
+  border-bottom: none;
+}
+
+.backup-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.compact-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.stat-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2, var(--surface));
+}
+
+.stat-cell span {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.stat-cell strong {
+  font-size: 18px;
+}
+
+.subsection-title {
+  margin: 20px 0 8px;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
+.backup-list {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 4px 14px;
+}
+

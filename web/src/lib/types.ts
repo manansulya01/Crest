@@ -148,17 +148,157 @@ export interface Provider {
   base_url: string;
   api_key_env: string;
   key_present: boolean;
+  credential_source: 'windows-dpapi' | 'environment' | 'none';
   default_model: string;
   models: string[];
   input_cost_per_1k: number;
   output_cost_per_1k: number;
   max_output_tokens: number;
   timeout_seconds: number;
+  retry_max: number;
+  rate_limit_per_minute: number;
   status: 'ready' | 'disabled' | 'key_missing';
   last_test_status: string | null;
   last_test_at: string | null;
   last_test_detail: string | null;
   cost_configured: boolean;
+}
+
+/** CREST 1.1 — server-enforced operating modes. */
+export type OperatingModeId = 'manual' | 'supervised' | 'bounded_autonomous';
+
+export interface OperatingMode {
+  id: OperatingModeId;
+  name: string;
+  summary: string;
+  approval_actions: string[];
+  risk_ceiling: string;
+}
+
+export interface ModesResponse {
+  modes: OperatingMode[];
+  current: OperatingModeId;
+  matrix: AutonomyLevel[];
+}
+
+export interface ControlStatus {
+  paused: boolean;
+  operating_mode: OperatingModeId;
+  active_executions: number;
+  awaiting_approval: number;
+  modes: OperatingMode[];
+}
+
+export interface CredentialStatusProvider {
+  provider_id: string;
+  name: string;
+  external: boolean;
+  configured: boolean;
+  source: string;
+  environment_variable: string;
+  updated_at: string | null;
+}
+
+export interface CredentialStatus {
+  backend: string;
+  windows_dpapi: boolean;
+  detail: string;
+  providers: CredentialStatusProvider[];
+}
+
+export interface ProviderUsageRow {
+  id: number;
+  provider_id: string;
+  model: string;
+  task_id: string | null;
+  execution_id: string | null;
+  status: string;
+  input_tokens: number;
+  output_tokens: number;
+  cost: number;
+  latency_ms: number;
+  error: string | null;
+  created_at: string;
+}
+
+export interface ProviderUsage {
+  items: ProviderUsageRow[];
+  totals: {
+    calls: number;
+    input_tokens: number;
+    output_tokens: number;
+    cost: number;
+  };
+  limit: number;
+}
+
+export interface BackupManifest {
+  /** Present from create(); list() returns `name` instead. */
+  backup?: string;
+  name?: string;
+  created_at: string;
+  note: string;
+  sha256: string;
+  size_bytes: number;
+  verified?: boolean;
+  manifest_present?: boolean;
+  schema_version: number | null;
+}
+
+export interface BackupList {
+  items: BackupManifest[];
+  directory: string;
+}
+
+export interface BackupVerify {
+  valid: boolean;
+  name: string;
+  sha256: string;
+  size_bytes: number;
+}
+
+export interface BackupRestore {
+  restored: string;
+  pre_restore_backup: string;
+  [key: string]: unknown;
+}
+
+export interface ImportValidation {
+  valid: boolean;
+  errors: string[];
+  [key: string]: unknown;
+}
+
+export interface LogInfo {
+  directory: string;
+  files: Array<{ name: string; size_bytes: number; modified_at: string }>;
+  tail: string[];
+}
+
+export interface SystemInfo {
+  name: string;
+  version: string;
+  description: string;
+  started_at: string;
+  uptime_seconds: number;
+  python: string;
+  platform: string;
+  data_dir: string;
+  paths: {
+    data_dir: string;
+    database: string;
+    logs: string;
+    backups: string;
+  };
+  frontend_built: boolean;
+  auth_token_required: boolean;
+  database: Diagnostics['database'];
+  schema_version: number;
+  credentials: CredentialStatus;
+  control: ControlStatus;
+  logs: LogInfo;
+  backups: { directory: string; items: BackupManifest[] };
+  security_level: string;
 }
 
 export interface ModelInfo {
@@ -198,6 +338,17 @@ export interface Settings {
   routing_fallback_enabled: boolean;
   retention_enabled: boolean;
   retention_days: number;
+  // CREST 1.1 daily-use controls
+  operating_mode: OperatingModeId;
+  onboarding_complete: boolean;
+  execution_paused: boolean;
+  provider_max_retries: number;
+  provider_backoff_seconds: number;
+  provider_rate_limit_per_minute: number;
+  backup_enabled: boolean;
+  backup_interval_hours: number;
+  backup_keep: number;
+  log_retention_days: number;
 }
 
 export interface AutonomyLevel {
@@ -211,11 +362,13 @@ export interface AutonomyLevel {
   global_high_risk_approval?: boolean;
   global_external_approval?: boolean;
   external_calls_enabled?: boolean;
+  operating_mode?: OperatingModeId;
 }
 
 export interface AutonomyResponse {
   levels: AutonomyLevel[];
   matrix: AutonomyLevel[];
+  modes: OperatingMode[];
   settings: Settings;
 }
 
@@ -269,11 +422,22 @@ export interface Diagnostics {
     integrity: { ok: boolean; result: string[] };
     counts: Record<string, number>;
   };
+  schema_version: number;
   frontend_built: boolean;
   auth_token_required: boolean;
   external_calls_enabled: boolean;
   providers: Provider[];
   settings: Record<string, unknown>;
+  paths: {
+    data_dir: string;
+    database: string;
+    logs: string;
+    backups: string;
+  };
+  logs: { directory: string; files: Array<{ name: string; size_bytes: number }> };
+  backups: { directory: string; items: BackupManifest[] };
+  credentials: CredentialStatus;
+  control: ControlStatus;
 }
 
 export interface BudgetSummary {

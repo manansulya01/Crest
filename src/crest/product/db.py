@@ -1,18 +1,19 @@
-"""SQLite persistence for the CREST 1.0 product.
+"""SQLite persistence for the CREST product.
 
 The product database is deliberately separate from the research runtime's
 capability store.  It stores task history, plans, executions, evidence,
-approvals, provider configuration (never credentials), routing rules, and the
-audit trail.
+approvals, provider configuration, routing rules, and the audit trail.
 
 Design notes
 ------------
 * WAL mode + a busy timeout keep local concurrent readers/writers safe.
 * All timestamps are UTC ISO-8601 strings.
-* Provider API keys are never stored here; only the name of the environment
-  variable that holds a key is persisted.
-* A legacy database created by the earlier single-file prototype is renamed,
-  not deleted, so existing local history is preserved.
+* Provider API keys are never stored in plaintext.  CREST 1.1 adds a
+  DPAPI-encrypted credential table; older databases that only name an
+  environment variable continue to work.
+* Schema changes are applied by ordered, idempotent migrations.  A legacy
+  database created by the earlier single-file prototype is renamed, not
+  deleted, so existing local history is preserved.
 """
 from __future__ import annotations
 
@@ -23,9 +24,9 @@ import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
-SCHEMA_VERSION = 1
+from .platform import SCHEMA_VERSION, app_data_dir, database_path
 
 
 def now_iso() -> str:
@@ -39,10 +40,7 @@ def default_data_dir() -> Path:
     use an isolated directory.  The default is stable across launches instead
     of depending on the current working directory.
     """
-    raw = os.environ.get("CREST_DATA_DIR")
-    if raw:
-        return Path(raw).expanduser().resolve()
-    return (Path.home() / ".crest").resolve()
+    return app_data_dir()
 
 
 def _json(value: Any) -> str:
@@ -51,7 +49,7 @@ def _json(value: Any) -> str:
 
 class Database:
     def __init__(self, path: str | Path | None = None):
-        self.path = Path(path).expanduser().resolve() if path else (default_data_dir() / "crest.db")
+        self.path = Path(path).expanduser().resolve() if path else database_path()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._init_lock = threading.Lock()
         self.initialize()
@@ -95,16 +93,43 @@ class Database:
                 self._rename_legacy_tables(conn)
                 conn.executescript(_SCHEMA_SQL)
                 version = int(conn.execute("PRAGMA user_version").fetchone()[0])
-                if version < SCHEMA_VERSION:
+                if version == 0:
+                    # A fresh baseline schema (or a renamed legacy database).
                     conn.execute(
                         "INSERT OR IGNORE INTO schema_migrations (version, applied_at, note) VALUES (?,?,?)",
-                        (SCHEMA_VERSION, now_iso(), "CREST 1.0 product schema"),
+                        (1, now_iso(), "CREST 1.0 baseline schema"),
                     )
-                    conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+                    conn.execute("PRAGMA user_version=1")
+                    version = 1
+                if version > SCHEMA_VERSION:
+                    raise RuntimeError(
+                        f"database schema {version} is newer than this application ({SCHEMA_VERSION}); "
+                        "upgrade CREST instead of downgrading the database"
+                    )
+                for target in range(version + 1, SCHEMA_VERSION + 1):
+                    migration = _MIGRATIONS[target]
+                    migration(conn)
+                    conn.execute(
+                        "INSERT OR IGNORE INTO schema_migrations (version, applied_at, note) VALUES (?,?,?)",
+                        (target, now_iso(), _MIGRATION_NOTES[target]),
+                    )
+                    conn.execute(f"PRAGMA user_version={target}")
                 self._seed(conn)
                 conn.commit()
             finally:
                 conn.close()
+
+    def schema_version(self) -> int:
+        with self.read() as conn:
+            return int(conn.execute("PRAGMA user_version").fetchone()[0])
+
+    def checkpoint(self) -> None:
+        """Flush the WAL so a clean shutdown leaves a compact database."""
+        try:
+            with self.read() as conn:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except sqlite3.DatabaseError:
+            pass
 
     def _rename_legacy_tables(self, conn: sqlite3.Connection) -> None:
         """Preserve, rather than overwrite, a database from the 1.0 prototype."""
@@ -222,6 +247,7 @@ class Database:
         tables = [
             "tasks", "plans", "executions", "execution_steps", "evidence",
             "approvals", "audit_events", "providers", "routing_rules",
+            "provider_usage", "provider_credentials",
         ]
         with self.read() as conn:
             return {
@@ -234,6 +260,24 @@ class Database:
             return self.path.stat().st_size
         except OSError:
             return 0
+
+
+def _apply_v2(conn: sqlite3.Connection) -> None:
+    """Add credential metadata, provider usage history, and retry settings."""
+    provider_columns = {row[1] for row in conn.execute("PRAGMA table_info(providers)")}
+    if "retry_max" not in provider_columns:
+        conn.execute("ALTER TABLE providers ADD COLUMN retry_max INTEGER NOT NULL DEFAULT 2")
+    if "rate_limit_per_minute" not in provider_columns:
+        conn.execute(
+            "ALTER TABLE providers ADD COLUMN rate_limit_per_minute INTEGER NOT NULL DEFAULT 30"
+        )
+    conn.executescript(_V2_SQL)
+
+
+_MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {2: _apply_v2}
+_MIGRATION_NOTES: dict[int, str] = {
+    2: "CREST 1.1 credentials, provider usage, retry and rate-limit settings",
+}
 
 
 _SCHEMA_SQL = """
@@ -407,3 +451,31 @@ CREATE TABLE IF NOT EXISTS routing_rules (
     updated_at TEXT NOT NULL
 );
 """
+
+_V2_SQL = """
+CREATE TABLE IF NOT EXISTS provider_credentials (
+    provider_id TEXT PRIMARY KEY,
+    ciphertext BLOB NOT NULL,
+    method TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS provider_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider_id TEXT NOT NULL,
+    model TEXT NOT NULL,
+    task_id TEXT,
+    execution_id TEXT,
+    status TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cost REAL NOT NULL DEFAULT 0.0,
+    latency_ms REAL NOT NULL DEFAULT 0.0,
+    error TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_usage_provider ON provider_usage(provider_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_usage_task ON provider_usage(task_id);
+"""
+

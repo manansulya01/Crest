@@ -2,24 +2,38 @@ import type {
   Approval,
   AuditEvent,
   AutonomyResponse,
+  BackupList,
+  BackupManifest,
+  BackupRestore,
+  BackupVerify,
   BudgetSummary,
+  ControlStatus,
+  CredentialStatus,
   Diagnostics,
   Evidence,
   ExecuteResponse,
+  ImportValidation,
+  LogInfo,
   ModelInfo,
+  ModesResponse,
+  OperatingModeId,
   Paginated,
   Plan,
   Provider,
+  ProviderUsage,
   RoutingResponse,
   RoutingRule,
   Settings,
   Stats,
+  SystemInfo,
   Task,
   TaskPayload,
 } from './types';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
 const TOKEN_KEY = 'crest.api_token';
+const CSRF_HEADER = 'X-Crest-CSRF';
+let csrfToken = '';
 
 export class ApiError extends Error {
   status: number;
@@ -48,12 +62,29 @@ export function setToken(token: string): void {
   }
 }
 
-function buildHeaders(hasBody: boolean): Headers {
+const STATE_CHANGING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+function buildHeaders(hasBody: boolean, method = 'GET'): Headers {
   const headers = new Headers();
   if (hasBody) headers.set('Content-Type', 'application/json');
   const token = getToken();
   if (token) headers.set('Authorization', `Bearer ${token}`);
+  // Browser requests carry an Origin header and must present the per-process
+  // CSRF token. Non-browser clients do not send Origin and are unaffected.
+  if (csrfToken && STATE_CHANGING.has(method.toUpperCase())) {
+    headers.set(CSRF_HEADER, csrfToken);
+  }
   return headers;
+}
+
+async function fetchCsrf(): Promise<string> {
+  const response = await fetch(`${API_BASE}/api/v1/security/csrf`, {
+    headers: buildHeaders(false),
+  });
+  if (!response.ok) throw new ApiError(response.status, await readError(response));
+  const body = (await response.json()) as { token: string };
+  csrfToken = body.token;
+  return csrfToken;
 }
 
 async function readError(response: Response): Promise<string> {
@@ -67,17 +98,35 @@ async function readError(response: Response): Promise<string> {
   }
 }
 
+async function send(path: string, init: RequestInit | undefined, method: string): Promise<Response> {
+  return fetch(`${API_BASE}${path}`, {
+    ...init,
+    method,
+    headers: buildHeaders(Boolean(init?.body), method),
+  });
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? 'GET').toUpperCase();
   let response: Response;
   try {
-    response = await fetch(`${API_BASE}${path}`, {
-      ...init,
-      headers: buildHeaders(Boolean(init?.body)),
-    });
-  } catch {
+    // Ensure we have a CSRF token before the first state-changing request.
+    if (STATE_CHANGING.has(method) && !csrfToken) await fetchCsrf();
+    response = await send(path, init, method);
+    // Token may have rotated (server restart) — refresh once and retry.
+    if (response.status === 403 && STATE_CHANGING.has(method)) {
+      const detail = await response.clone().text();
+      if (detail.toLowerCase().includes('csrf')) {
+        csrfToken = '';
+        await fetchCsrf();
+        response = await send(path, init, method);
+      }
+    }
+  } catch (caught) {
+    if (caught instanceof ApiError) throw caught;
     throw new ApiError(
       0,
-      'Cannot reach the CREST API. Start it with: python -m uvicorn crest.api:app --host 127.0.0.1 --port 8000',
+      'Cannot reach the CREST API. Start the CREST desktop app or the local backend service.',
     );
   }
   if (!response.ok) {
@@ -120,13 +169,92 @@ async function download(path: string, filename: string): Promise<void> {
 
 export const api = {
   health: () =>
-    request<{ status: string; version: string; timestamp: string; database: string }>(
-      '/api/v1/health',
-    ),
+    request<{
+      status: string;
+      version: string;
+      timestamp: string;
+      database: string;
+      schema_version: number;
+      operating_mode: OperatingModeId;
+      paused: boolean;
+      control: ControlStatus;
+    }>('/api/v1/health'),
 
   diagnostics: () => request<Diagnostics>('/api/v1/diagnostics'),
 
-  systemInfo: () => request<Record<string, unknown>>('/api/v1/system/info'),
+  systemInfo: () => request<SystemInfo>('/api/v1/system/info'),
+
+  // ----------------------------------------------------------- security/CSRF
+  security: {
+    csrf: () => fetchCsrf(),
+  },
+
+  // ---------------------------------------------------------------- controls
+  control: {
+    status: () => request<ControlStatus>('/api/v1/control'),
+    pause: () => request<ControlStatus>('/api/v1/control/pause', { method: 'POST' }),
+    resume: () => request<ControlStatus>('/api/v1/control/resume', { method: 'POST' }),
+    stopAll: () =>
+      request<{ cancelled: number; task_ids: string[]; errors: Array<{ task_id: string; error: string }> }>(
+        '/api/v1/control/stop-all',
+        { method: 'POST' },
+      ),
+  },
+
+  // ------------------------------------------------------------------- modes
+  modes: {
+    get: () => request<ModesResponse>('/api/v1/modes'),
+    set: (mode: OperatingModeId) =>
+      request<{ operating_mode: OperatingModeId; previous: OperatingModeId }>('/api/v1/modes', {
+        method: 'PUT',
+        body: JSON.stringify({ mode }),
+      }),
+  },
+
+  // ------------------------------------------------------------- credentials
+  credentials: {
+    status: () => request<CredentialStatus>('/api/v1/credentials'),
+    set: (providerId: string, apiKey: string) =>
+      request<{ provider_id: string; configured: boolean; storage: string; updated_at: string }>(
+        `/api/v1/credentials/${providerId}`,
+        { method: 'PUT', body: JSON.stringify({ api_key: apiKey, confirm: true }) },
+      ),
+    clear: (providerId: string) =>
+      request<{ provider_id: string; configured: boolean; removed: boolean }>(
+        `/api/v1/credentials/${providerId}`,
+        { method: 'DELETE' },
+      ),
+  },
+
+  // ----------------------------------------------------------------- backups
+  backups: {
+    list: () => request<BackupList>('/api/v1/backups'),
+    create: (note = '') =>
+      request<BackupManifest>('/api/v1/backups', {
+        method: 'POST',
+        body: JSON.stringify({ note }),
+      }),
+    verify: (name: string) =>
+      request<BackupVerify>('/api/v1/backups/verify', {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      }),
+    restore: (name: string) =>
+      request<BackupRestore>('/api/v1/backups/restore', {
+        method: 'POST',
+        body: JSON.stringify({ name, confirm: true }),
+      }),
+    download: (name: string) =>
+      download(`/api/v1/backups/${encodeURIComponent(name)}/download`, `crest-db-${name}`),
+  },
+
+  // -------------------------------------------------------------- logs/import
+  logs: (lines = 200) => request<LogInfo>(`/api/v1/logs${query({ lines })}`),
+  validateImport: (payload: unknown) =>
+    request<ImportValidation>('/api/v1/import/validate', {
+      method: 'POST',
+      body: JSON.stringify({ payload }),
+    }),
 
   tasks: {
     list: (params: {
@@ -180,6 +308,13 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ confirm: true, model }),
       }),
+    usage: (id: string, limit = 100) =>
+      request<ProviderUsage>(`/api/v1/providers/${id}/usage${query({ limit })}`),
+    discoverModels: (id: string) =>
+      request<{ provider: string; models: string[]; count: number }>(
+        `/api/v1/providers/${id}/models/discover`,
+        { method: 'POST', body: JSON.stringify({ confirm: true }) },
+      ),
   },
 
   models: () => request<ModelInfo[]>('/api/v1/models'),

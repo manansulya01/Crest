@@ -20,11 +20,22 @@ from typing import Any
 
 from ..high_risk_gate import GateDecision, GateResult, evaluate_high_risk_gate
 from ..redaction import redact
+from .backup import BackupError, BackupManager
+from .credentials import CredentialError, CredentialStore, describe_backend
 from .db import Database, now_iso
+from .logging_setup import get_logger, log_files, tail_log
 from .planner import build_plan
-from .policy import authorize_action, level_info, validate_custom_policy
+from .platform import VERSION, backups_dir, logs_dir
+from .policy import (
+    OPERATING_MODES,
+    authorize_action,
+    level_info,
+    mode_info,
+    validate_custom_policy,
+)
 from .providers import (
     ProviderError,
+    ProviderTransientError,
     build_provider,
     estimate_tokens,
     provider_public,
@@ -38,7 +49,6 @@ from .verification import (
     verify_output,
 )
 
-VERSION = "1.0.0"
 TERMINAL_TASK_STATUSES = {
     "completed", "failed", "abstained", "denied", "budget_exhausted",
     "cancelled", "rejected", "interrupted", "timed_out",
@@ -70,6 +80,10 @@ class PolicyDeniedError(ProductError):
 
 class ProviderUnavailableError(ProductError):
     pass
+
+
+class _ExecutionCancelled(Exception):
+    """Internal signal: the user cancelled or the application is shutting down."""
 
 
 def _loads(value: Any, default: Any) -> Any:
@@ -113,6 +127,11 @@ class ProductEngine:
         self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="crest-exec")
         self._start_lock = threading.Lock()
         self._shutdown = threading.Event()
+        self.credentials = CredentialStore(db, db.path.parent)
+        self.backups = BackupManager(db, backups_dir(db.path.parent))
+        self.logger = get_logger("crest.engine")
+        self._rate_lock = threading.Lock()
+        self._rate_events: dict[str, list[float]] = {}
 
     # ------------------------------------------------------------------ audit
     def _audit(
@@ -162,6 +181,32 @@ class ProductEngine:
         if row is None:
             raise ValidationError(f"provider {provider_id!r} does not exist")
         return _provider_from_row(row)  # type: ignore[return-value]
+
+    def _credential_status(
+        self, provider_id: str, row: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        provider = row if row is not None else self._provider_row(provider_id)
+        return self.credentials.key_status(
+            provider_id, str(provider.get("api_key_env") or "")
+        )
+
+    def _provider_key(self, provider: dict[str, Any]) -> tuple[str | None, str]:
+        if str(provider.get("kind")) == "mock":
+            return None, "none"
+        provider_id = str(provider["id"])
+        stored = self.credentials.get(provider_id)
+        if stored:
+            return stored, "windows-dpapi"
+        env = str(provider.get("api_key_env") or "")
+        if env and __import__("os").environ.get(env):
+            return None, "environment"
+        return None, "none"
+
+    def _public_provider(self, row: dict[str, Any]) -> dict[str, Any]:
+        return provider_public(
+            row,
+            credential_status=self._credential_status(str(row["id"]), row),
+        )
 
     def _latest_plan(self, task_id: str) -> dict[str, Any] | None:
         with self.db.read() as conn:
@@ -214,6 +259,8 @@ class ProductEngine:
             "require_approval_high_risk": settings.get("require_approval_high_risk"),
             "require_approval_external": settings.get("require_approval_external"),
             "allow_custom_policies": settings.get("allow_custom_policies"),
+            "operating_mode": settings.get("operating_mode"),
+            "provider_rate_limit_per_minute": settings.get("provider_rate_limit_per_minute"),
         }
         return _sha256(json.dumps(payload, sort_keys=True, default=str))
 
@@ -250,9 +297,11 @@ class ProductEngine:
                     raise ProviderUnavailableError(
                         f"model {model!r} is not configured for provider {provider_id!r}"
                     )
-                if str(provider.get("kind")) != "mock" and not provider_public(provider)["key_present"]:
+                if str(provider.get("kind")) != "mock" and not self._credential_status(
+                    provider_id, provider
+                )["configured"]:
                     raise ProviderUnavailableError(
-                        f"provider {provider_id!r} has no API key in {provider.get('api_key_env')}"
+                        f"provider {provider_id!r} has no stored credential or {provider.get('api_key_env')} environment variable"
                     )
                 return provider, model, reason, fallback_used
             except (ValidationError, ProviderUnavailableError) as exc:
@@ -671,6 +720,8 @@ class ProductEngine:
             if task["status"] in ("queued", "running"):
                 raise ConflictError("task is already queued or running")
             settings = get_settings(self.db)
+            if settings.get("execution_paused"):
+                raise ConflictError("execution is paused; resume before starting tasks")
             if int(task["autonomy_level"]) > int(settings["max_autonomy_level"]):
                 reason = f"AUTONOMY_EXCEEDS_GLOBAL_MAX:{task['autonomy_level']}>{settings['max_autonomy_level']}"
                 self._mark_denied(task, reason)
@@ -850,8 +901,20 @@ class ProductEngine:
             )
 
     def _record_usage(
-        self, execution_id: str, task_id: str, input_tokens: int, output_tokens: int, cost: float
+        self,
+        execution_id: str,
+        task_id: str,
+        input_tokens: int,
+        output_tokens: int,
+        cost: float,
+        *,
+        provider_id: str = "",
+        model: str = "",
+        latency_ms: float = 0.0,
+        status: str = "ok",
+        error: str | None = None,
     ) -> dict[str, Any]:
+        ts = now_iso()
         with self.db.tx() as conn:
             conn.execute(
                 """UPDATE executions SET input_tokens=input_tokens+?, output_tokens=output_tokens+?,
@@ -861,9 +924,81 @@ class ProductEngine:
             conn.execute(
                 """UPDATE tasks SET input_tokens=input_tokens+?, output_tokens=output_tokens+?,
                    cost=cost+?, updated_at=? WHERE id=?""",
-                (input_tokens, output_tokens, cost, now_iso(), task_id),
+                (input_tokens, output_tokens, cost, ts, task_id),
+            )
+            conn.execute(
+                """INSERT INTO provider_usage
+                   (provider_id, model, task_id, execution_id, status, input_tokens,
+                    output_tokens, cost, latency_ms, error, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    provider_id, model, task_id, execution_id, status, input_tokens,
+                    output_tokens, cost, latency_ms,
+                    (error or "")[:1000] or None, ts,
+                ),
             )
         return self._task_row(task_id)
+
+    def _cancel_requested(self, execution_id: str) -> bool:
+        execution = self._execution_row(execution_id)
+        return bool(int(execution.get("cancel_requested") or 0))
+
+    def _sleep_with_cancel(self, seconds: float, execution_id: str) -> None:
+        deadline = time.monotonic() + max(0.0, float(seconds))
+        while True:
+            if self._shutdown.is_set():
+                raise _ExecutionCancelled("application shutdown")
+            if self._cancel_requested(execution_id):
+                raise _ExecutionCancelled("cancelled by user")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            time.sleep(min(0.1, remaining))
+
+    def _wait_while_paused(self, execution_id: str, task_id: str) -> None:
+        announced = False
+        while True:
+            if self._shutdown.is_set():
+                raise _ExecutionCancelled("application shutdown")
+            if self._cancel_requested(execution_id):
+                raise _ExecutionCancelled("cancelled by user")
+            settings = get_settings(self.db)
+            if not settings.get("execution_paused"):
+                if announced:
+                    self._audit(
+                        task_id=task_id, execution_id=execution_id,
+                        event_type="EXECUTION_RESUMED",
+                        detail={"reason": "global pause cleared"},
+                    )
+                return
+            if not announced:
+                self._audit(
+                    task_id=task_id, execution_id=execution_id,
+                    event_type="EXECUTION_PAUSED",
+                    detail={"reason": "global pause enabled"},
+                )
+                announced = True
+            time.sleep(0.25)
+
+    def _acquire_rate_slot(
+        self, provider_id: str, limit: int, max_wait: float, execution_id: str
+    ) -> None:
+        limit = max(1, int(limit))
+        deadline = time.monotonic() + max(0.0, float(max_wait))
+        while True:
+            now = time.monotonic()
+            with self._rate_lock:
+                events = [t for t in self._rate_events.get(provider_id, []) if now - t < 60.0]
+                self._rate_events[provider_id] = events
+                if len(events) < limit:
+                    events.append(now)
+                    return
+                wait = max(0.05, 60.0 - (now - events[0]))
+            if time.monotonic() + min(wait, 1.0) > deadline:
+                raise ProviderTransientError(
+                    f"local rate limit reached for {provider_id} ({limit} requests/minute)"
+                )
+            self._sleep_with_cancel(min(wait, 1.0), execution_id)
 
     def _record_evidence(
         self,
@@ -994,6 +1129,14 @@ class ProductEngine:
             return
         if execution["status"] not in ("queued", "running"):
             return
+        try:
+            self._wait_while_paused(execution_id, str(execution["task_id"]))
+        except _ExecutionCancelled as exc:
+            self._finalize(
+                task_id=str(execution["task_id"]), execution_id=execution_id,
+                status="cancelled", error=str(exc),
+            )
+            return
         ts = now_iso()
         with self.db.tx() as conn:
             conn.execute(
@@ -1098,9 +1241,18 @@ class ProductEngine:
                 )
                 return
 
-            max_attempts = 1
+            base_attempts = 1
             if int(task["autonomy_level"]) >= 3:
-                max_attempts += int(settings.get("max_recovery_attempts") or 0)
+                base_attempts += int(settings.get("max_recovery_attempts") or 0)
+            provider_retry_limit = min(
+                int(
+                    provider.get("retry_max")
+                    if provider.get("retry_max") is not None
+                    else settings.get("provider_max_retries") or 0
+                ),
+                int(settings.get("provider_max_retries") or 0),
+            )
+            max_attempts = base_attempts + provider_retry_limit
             output: str | None = None
             verification: VerificationResult | None = None
             last_error: str | None = None
@@ -1136,13 +1288,58 @@ class ProductEngine:
                     )
                     return
 
+                try:
+                    self._wait_while_paused(execution_id, task["id"])
+                except _ExecutionCancelled as exc:
+                    self._finalize(
+                        task_id=task["id"], execution_id=execution_id, status="cancelled",
+                        error=str(exc), extra={"attempt": attempt},
+                    )
+                    return
+
+                try:
+                    limit = min(
+                        int(provider.get("rate_limit_per_minute") or settings["provider_rate_limit_per_minute"]),
+                        int(settings["provider_rate_limit_per_minute"]),
+                    )
+                    self._acquire_rate_slot(
+                        str(provider["id"]), limit,
+                        min(float(task["timeout_seconds"]), 30.0), execution_id,
+                    )
+                except ProviderTransientError as exc:
+                    last_error = str(exc)
+                    self._record_usage(
+                        execution_id, task["id"], 0, 0, 0.0,
+                        provider_id=str(provider["id"]), model=model,
+                        status="rate_limited", error=last_error,
+                    )
+                    self._audit(
+                        task_id=task["id"], execution_id=execution_id,
+                        event_type="PROVIDER_RATE_LIMITED",
+                        detail={"attempt": attempt, "error": last_error},
+                    )
+                    self._finalize(
+                        task_id=task["id"], execution_id=execution_id, status="failed",
+                        error=f"provider error: {last_error}", extra={"attempt": attempt},
+                    )
+                    return
+                except _ExecutionCancelled as exc:
+                    self._finalize(
+                        task_id=task["id"], execution_id=execution_id, status="cancelled",
+                        error=str(exc), extra={"attempt": attempt},
+                    )
+                    return
+
                 seq += 1
                 step = self._step_start(
                     execution_id, seq, f"provider_call_attempt_{attempt}",
                     {"provider": provider["id"], "model": model},
                 )
                 try:
-                    response = build_provider(provider).generate(
+                    api_key, credential_source = self._provider_key(provider)
+                    response = build_provider(
+                        provider, api_key=api_key, credential_source=credential_source
+                    ).generate(
                         model=model,
                         prompt=prompt,
                         max_output_tokens=max_output,
@@ -1153,25 +1350,51 @@ class ProductEngine:
                             "attempt": attempt,
                         },
                     )
-                except ProviderError as exc:
+                except (ProviderError, CredentialError) as exc:
                     last_error = str(exc)
                     self._step_finish(step, "failed", {"error": last_error})
+                    self._record_usage(
+                        execution_id, task["id"], 0, 0, 0.0,
+                        provider_id=str(provider["id"]), model=model,
+                        status="error", error=last_error,
+                    )
                     self._audit(
                         task_id=task["id"], execution_id=execution_id,
                         event_type="PROVIDER_ERROR",
                         detail={"attempt": attempt, "error": last_error},
                     )
-                    transient = any(
+                    transient = isinstance(exc, ProviderTransientError) or any(
                         token in last_error.lower()
                         for token in ("timeout", "temporar", "429", "500", "502", "503", "504", "connection")
                     )
                     if transient and attempt < max_attempts:
+                        delay = min(
+                            float(settings.get("provider_backoff_seconds") or 0.0) * attempt,
+                            10.0,
+                        )
+                        if isinstance(exc, ProviderTransientError) and exc.retry_after is not None:
+                            delay = max(delay, min(float(exc.retry_after), 30.0))
+                        try:
+                            self._sleep_with_cancel(delay, execution_id)
+                            self._wait_while_paused(execution_id, task["id"])
+                        except _ExecutionCancelled as cancel_exc:
+                            self._finalize(
+                                task_id=task["id"], execution_id=execution_id,
+                                status="cancelled", error=str(cancel_exc),
+                                extra={"attempt": attempt},
+                            )
+                            return
                         seq += 1
                         recovery = self._step_start(
                             execution_id, seq, f"recovery_retry_{attempt}",
-                            {"reason": "transient provider error"},
+                            {"reason": "transient provider error", "delay_seconds": round(delay, 2)},
                         )
                         self._step_finish(recovery, "completed", {"retry": attempt + 1})
+                        self._audit(
+                            task_id=task["id"], execution_id=execution_id,
+                            event_type="PROVIDER_RETRY_SCHEDULED",
+                            detail={"attempt": attempt, "retry": attempt + 1, "delay_seconds": round(delay, 2)},
+                        )
                         continue
                     self._finalize(
                         task_id=task["id"], execution_id=execution_id, status="failed",
@@ -1183,6 +1406,8 @@ class ProductEngine:
                 task = self._record_usage(
                     execution_id, task["id"], response.input_tokens,
                     response.output_tokens, response.cost,
+                    provider_id=str(provider["id"]), model=model,
+                    latency_ms=response.latency_ms,
                 )
                 self._step_finish(
                     step, "completed",
@@ -1271,7 +1496,7 @@ class ProductEngine:
                 if verification.passed:
                     break
                 last_error = verification.failure_reason
-                if attempt < max_attempts:
+                if attempt < base_attempts:
                     seq += 1
                     recovery = self._step_start(
                         execution_id, seq, f"recovery_retry_{attempt}",
@@ -1306,7 +1531,9 @@ class ProductEngine:
                         raise ProviderUnavailableError("verifier provider is disabled")
                     if verifier_row.get("models") and verifier_model not in verifier_row["models"]:
                         raise ProviderUnavailableError("verifier model is not configured")
-                    if str(verifier_row.get("kind")) != "mock" and not provider_public(verifier_row)["key_present"]:
+                    if str(verifier_row.get("kind")) != "mock" and not self._credential_status(
+                        verifier_id, verifier_row
+                    )["configured"]:
                         raise ProviderUnavailableError("verifier API key is not configured")
                     seq += 1
                     vstep = self._step_start(
@@ -1314,7 +1541,10 @@ class ProductEngine:
                         {"provider": verifier_id, "model": verifier_model},
                     )
                     verifier_prompt = build_verifier_prompt(task, output)
-                    vresponse = build_provider(verifier_row).generate(
+                    verifier_key, verifier_source = self._provider_key(verifier_row)
+                    vresponse = build_provider(
+                        verifier_row, api_key=verifier_key, credential_source=verifier_source
+                    ).generate(
                         model=verifier_model,
                         prompt=verifier_prompt,
                         max_output_tokens=256,
@@ -1324,6 +1554,8 @@ class ProductEngine:
                     task = self._record_usage(
                         execution_id, task["id"], vresponse.input_tokens,
                         vresponse.output_tokens, vresponse.cost,
+                        provider_id=verifier_id, model=verifier_model,
+                        latency_ms=vresponse.latency_ms,
                     )
                     if (
                         float(task["cost"]) > float(task["budget"])
@@ -1456,11 +1688,14 @@ class ProductEngine:
     def list_providers(self) -> list[dict[str, Any]]:
         with self.db.read() as conn:
             rows = conn.execute("SELECT * FROM providers ORDER BY id").fetchall()
-        return [provider_public(_provider_from_row(row)) for row in rows]  # type: ignore[arg-type]
+        return [self._public_provider(_provider_from_row(row)) for row in rows]  # type: ignore[arg-type]
 
     def update_provider(self, provider_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         provider = self._provider_row(provider_id)
-        clean = validate_provider_update(updates)
+        try:
+            clean = validate_provider_update(updates)
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
         if "models" in clean and not clean["models"]:
             raise ValidationError("a provider must have at least one configured model")
         ts = now_iso()
@@ -1477,7 +1712,7 @@ class ProductEngine:
                 task_id=None, execution_id=None, event_type="PROVIDER_UPDATED",
                 detail={"provider": provider_id, "fields": sorted(clean)}, conn=conn,
             )
-        return provider_public(self._provider_row(provider_id))
+        return self._public_provider(self._provider_row(provider_id))
 
     def test_provider(
         self, provider_id: str, *, confirm: bool, model: str | None = None
@@ -1489,20 +1724,24 @@ class ProductEngine:
         external = str(provider.get("kind")) != "mock"
         if external and not settings.get("allow_external_calls", False):
             raise PolicyDeniedError("EXTERNAL_CALLS_DISABLED")
-        if external and not provider_public(provider)["key_present"]:
+        if external and not self._credential_status(provider_id, provider)["configured"]:
             raise ValidationError(
-                f"API key is not configured in environment variable {provider.get('api_key_env')}"
+                "API key is not configured. Add it in Providers (stored with Windows DPAPI) "
+                f"or set {provider.get('api_key_env')}."
             )
         chosen = model or str(provider.get("default_model") or "")
         if not chosen:
             raise ValidationError("no model selected for connection test")
         try:
-            result = build_provider(provider).test_connection(
+            key, source = self._provider_key(provider)
+            result = build_provider(
+                provider, api_key=key, credential_source=source
+            ).test_connection(
                 model=chosen,
                 timeout_seconds=min(float(provider.get("timeout_seconds") or 30.0), 30.0),
             )
             status = "ok"
-        except ProviderError as exc:
+        except (ProviderError, CredentialError) as exc:
             result = {"ok": False, "message": str(exc), "model": chosen}
             status = "error"
         ts = now_iso()
@@ -1511,11 +1750,255 @@ class ProductEngine:
                 "UPDATE providers SET last_test_status=?, last_test_at=?, last_test_detail=?, updated_at=? WHERE id=?",
                 (status, ts, json.dumps(redact(result), default=str), ts, provider_id),
             )
+            conn.execute(
+                """INSERT INTO provider_usage
+                   (provider_id, model, task_id, execution_id, status, input_tokens,
+                    output_tokens, cost, latency_ms, error, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    provider_id, chosen, None, None, "connection_test_ok" if status == "ok" else "connection_test_error",
+                    int(result.get("input_tokens") or 0), int(result.get("output_tokens") or 0),
+                    float(result.get("cost") or 0.0), float(result.get("latency_ms") or 0.0),
+                    None if status == "ok" else str(result.get("message") or "")[:1000], ts,
+                ),
+            )
             self._audit(
                 task_id=None, execution_id=None, event_type="PROVIDER_TESTED",
                 detail={"provider": provider_id, "model": chosen, "status": status}, conn=conn,
             )
         return {"provider": provider_id, "status": status, **result}
+
+    # ----------------------------------------------------------- credentials
+    def set_provider_credential(self, provider_id: str, api_key: str) -> dict[str, Any]:
+        self._provider_row(provider_id)
+        try:
+            status = self.credentials.set(provider_id, api_key)
+        except CredentialError as exc:
+            raise ValidationError(str(exc)) from exc
+        self._audit(
+            task_id=None, execution_id=None, event_type="PROVIDER_CREDENTIAL_SET",
+            detail={"provider": provider_id, "storage": status["method"]},
+        )
+        return {
+            "provider_id": provider_id,
+            "configured": True,
+            "storage": status["method"],
+            "updated_at": status["updated_at"],
+        }
+
+    def clear_provider_credential(self, provider_id: str) -> dict[str, Any]:
+        self._provider_row(provider_id)
+        removed = self.credentials.delete(provider_id)
+        self._audit(
+            task_id=None, execution_id=None, event_type="PROVIDER_CREDENTIAL_CLEARED",
+            detail={"provider": provider_id, "removed": removed},
+        )
+        return {"provider_id": provider_id, "configured": False, "removed": removed}
+
+    def credential_status(self) -> dict[str, Any]:
+        statuses = {row["provider_id"]: row for row in self.credentials.status()}
+        providers = []
+        for provider in self.list_providers():
+            providers.append(
+                {
+                    "provider_id": provider["id"],
+                    "name": provider["name"],
+                    "external": provider["external"],
+                    "configured": provider["key_present"],
+                    "source": provider["credential_source"],
+                    "environment_variable": provider["api_key_env"],
+                    "updated_at": statuses.get(provider["id"], {}).get("updated_at"),
+                }
+            )
+        return {**describe_backend(), "providers": providers}
+
+    def discover_models(self, provider_id: str, *, confirm: bool) -> dict[str, Any]:
+        if not confirm:
+            raise ValidationError("explicit confirmation is required before a model discovery request")
+        provider = self._provider_row(provider_id)
+        settings = get_settings(self.db)
+        external = str(provider.get("kind")) != "mock"
+        if external and not settings.get("allow_external_calls", False):
+            raise PolicyDeniedError("EXTERNAL_CALLS_DISABLED")
+        if external and not self._credential_status(provider_id, provider)["configured"]:
+            raise ValidationError("API key is not configured for this provider")
+        key, source = self._provider_key(provider)
+        models = build_provider(
+            provider, api_key=key, credential_source=source
+        ).list_remote_models(
+            timeout_seconds=min(float(provider.get("timeout_seconds") or 30.0), 30.0)
+        )
+        self._audit(
+            task_id=None, execution_id=None, event_type="PROVIDER_MODELS_DISCOVERED",
+            detail={"provider": provider_id, "count": len(models)},
+        )
+        return {"provider": provider_id, "models": models, "count": len(models)}
+
+    def provider_usage(
+        self, *, provider_id: str | None = None, limit: int = 100
+    ) -> dict[str, Any]:
+        limit = max(1, min(int(limit), 500))
+        where = "WHERE provider_id=?" if provider_id else ""
+        params: list[Any] = [provider_id] if provider_id else []
+        with self.db.read() as conn:
+            rows = [dict(r) for r in conn.execute(
+                f"""SELECT * FROM provider_usage {where}
+                    ORDER BY created_at DESC, id DESC LIMIT ?""",
+                [*params, limit],
+            ).fetchall()]
+            totals = conn.execute(
+                f"""SELECT COUNT(*) AS calls,
+                           COALESCE(SUM(input_tokens),0) AS input_tokens,
+                           COALESCE(SUM(output_tokens),0) AS output_tokens,
+                           COALESCE(SUM(cost),0) AS cost
+                    FROM provider_usage {where}""",
+                params,
+            ).fetchone()
+        return {
+            "items": rows,
+            "totals": dict(totals) if totals else {},
+            "limit": limit,
+        }
+
+    # --------------------------------------------------------------- controls
+    def control_status(self) -> dict[str, Any]:
+        settings = get_settings(self.db)
+        with self.db.read() as conn:
+            active = int(conn.execute(
+                "SELECT COUNT(*) FROM executions WHERE status IN ('queued','running')"
+            ).fetchone()[0])
+            awaiting = int(conn.execute(
+                "SELECT COUNT(*) FROM tasks WHERE status='awaiting_approval' AND deleted_at IS NULL"
+            ).fetchone()[0])
+        return {
+            "paused": bool(settings.get("execution_paused")),
+            "operating_mode": settings.get("operating_mode"),
+            "active_executions": active,
+            "awaiting_approval": awaiting,
+            "modes": mode_info(),
+        }
+
+    def set_paused(self, paused: bool) -> dict[str, Any]:
+        settings = update_settings(self.db, {"execution_paused": bool(paused)})
+        self._audit(
+            task_id=None, execution_id=None,
+            event_type="EXECUTION_PAUSED" if paused else "EXECUTION_RESUMED",
+            detail={"scope": "global"},
+        )
+        return {
+            "paused": bool(settings["execution_paused"]),
+            "operating_mode": settings["operating_mode"],
+        }
+
+    def set_operating_mode(self, mode: str) -> dict[str, Any]:
+        if mode not in OPERATING_MODES:
+            raise ValidationError(f"operating_mode must be one of {sorted(OPERATING_MODES)}")
+        previous = get_settings(self.db)["operating_mode"]
+        settings = update_settings(self.db, {"operating_mode": mode})
+        self._audit(
+            task_id=None, execution_id=None, event_type="POLICY_CHANGED",
+            detail={"field": "operating_mode", "from": previous, "to": mode},
+        )
+        return {
+            "operating_mode": settings["operating_mode"],
+            "previous": previous,
+            "mode": OPERATING_MODES[mode],
+        }
+
+    def stop_all(self) -> dict[str, Any]:
+        with self.db.read() as conn:
+            rows = [dict(r) for r in conn.execute(
+                """SELECT id, status FROM tasks
+                   WHERE deleted_at IS NULL
+                     AND status IN ('pending','queued','running','awaiting_approval','approved')"""
+            ).fetchall()]
+        cancelled: list[str] = []
+        errors: list[dict[str, str]] = []
+        for row in rows:
+            try:
+                self.cancel_task(row["id"])
+                cancelled.append(row["id"])
+            except (ConflictError, TaskNotFound) as exc:
+                errors.append({"task_id": row["id"], "error": str(exc)})
+        self._audit(
+            task_id=None, execution_id=None, event_type="STOP_ALL",
+            detail={"cancelled": len(cancelled), "errors": len(errors)},
+        )
+        return {"cancelled": len(cancelled), "task_ids": cancelled, "errors": errors}
+
+    # ---------------------------------------------------------------- backups
+    def create_backup(self, *, note: str = "") -> dict[str, Any]:
+        settings = get_settings(self.db)
+        manifest = self.backups.create(note=note, keep=int(settings.get("backup_keep") or 10))
+        self._audit(
+            task_id=None, execution_id=None, event_type="BACKUP_CREATED",
+            detail={"name": manifest["backup"], "sha256": manifest["sha256"], "size_bytes": manifest["size_bytes"]},
+        )
+        return manifest
+
+    def list_backups(self) -> list[dict[str, Any]]:
+        return self.backups.list()
+
+    def verify_backup(self, name: str) -> dict[str, Any]:
+        return self.backups.verify(name)
+
+    def backup_file(self, name: str) -> Path:
+        return self.backups._resolve(name)
+
+    def restore_backup(self, name: str, *, confirm: bool) -> dict[str, Any]:
+        result = self.backups.restore(name, confirm=confirm)
+        self._audit(
+            task_id=None, execution_id=None, event_type="BACKUP_RESTORED",
+            detail={"restored": name, "pre_restore_backup": result["pre_restore_backup"]},
+        )
+        return result
+
+    # ----------------------------------------------------------------- health
+    def health(self) -> dict[str, Any]:
+        import shutil
+
+        integrity = self.db.integrity()
+        settings = get_settings(self.db)
+        providers = self.list_providers()
+        try:
+            usage = shutil.disk_usage(self.db.path.parent)
+            disk = {"free_bytes": usage.free, "total_bytes": usage.total}
+            writable = __import__("os").access(self.db.path.parent, __import__("os").W_OK)
+        except OSError:
+            disk = {}
+            writable = False
+        provider_health = {
+            provider["id"]: {
+                "status": provider["status"],
+                "external": provider["external"],
+                "last_test_status": provider["last_test_status"],
+            }
+            for provider in providers
+        }
+        ok = bool(integrity["ok"]) and bool(writable)
+        return {
+            "status": "ok" if ok else "degraded",
+            "version": VERSION,
+            "timestamp": now_iso(),
+            "database": "ok" if integrity["ok"] else "degraded",
+            "database_integrity": integrity,
+            "schema_version": self.db.schema_version(),
+            "data_dir_writable": bool(writable),
+            "disk": disk,
+            "paused": bool(settings.get("execution_paused")),
+            "operating_mode": settings.get("operating_mode"),
+            "control": self.control_status(),
+            "providers": provider_health,
+            "credentials": describe_backend(),
+            "log_dir": str(logs_dir(self.db.path.parent)),
+        }
+
+    def logs(self, *, lines: int = 200) -> dict[str, Any]:
+        return {
+            "directory": str(logs_dir(self.db.path.parent)),
+            "files": log_files(self.db.path.parent),
+            "tail": tail_log(self.db.path.parent, lines=lines),
+        }
 
     # --------------------------------------------------------------- routing
     def list_routing(self) -> dict[str, Any]:
@@ -1770,6 +2253,7 @@ class ProductEngine:
         return {
             "status": "ok" if integrity["ok"] else "degraded",
             "version": VERSION,
+            "schema_version": self.db.schema_version(),
             "started_at": self.started_at,
             "uptime_seconds": round(
                 (datetime.now(timezone.utc) - datetime.fromisoformat(self.started_at)).total_seconds(), 1
@@ -1777,12 +2261,29 @@ class ProductEngine:
             "python": sys.version.split()[0],
             "platform": platform.platform(),
             "data_dir": str(self.db.path.parent),
+            "paths": {
+                "data_dir": str(self.db.path.parent),
+                "database": str(self.db.path),
+                "logs": str(logs_dir(self.db.path.parent)),
+                "backups": str(self.backups.directory),
+            },
             "database": {
                 "path": str(self.db.path),
                 "size_bytes": self.db.size_bytes(),
                 "integrity": integrity,
                 "counts": self.db.counts(),
+                "schema_version": self.db.schema_version(),
             },
+            "logs": {
+                "directory": str(logs_dir(self.db.path.parent)),
+                "files": log_files(self.db.path.parent),
+            },
+            "backups": {
+                "directory": str(self.backups.directory),
+                "items": self.backups.list()[:10],
+            },
+            "credentials": describe_backend(),
+            "control": self.control_status(),
             "frontend_built": frontend.exists(),
             "auth_token_required": bool(__import__("os").environ.get("CREST_API_TOKEN")),
             "external_calls_enabled": bool(settings.get("allow_external_calls")),
@@ -1792,6 +2293,10 @@ class ProductEngine:
                     "max_autonomy_level", "default_autonomy_level", "allow_external_calls",
                     "require_approval_high_risk", "require_approval_external",
                     "verification_mode", "retention_enabled", "retention_days",
+                    "operating_mode", "execution_paused", "provider_max_retries",
+                    "provider_backoff_seconds", "provider_rate_limit_per_minute",
+                    "backup_enabled", "backup_interval_hours", "backup_keep",
+                    "log_retention_days", "onboarding_complete",
                 )
             },
         }
@@ -1819,19 +2324,22 @@ class ProductEngine:
             tables = {}
             for table in (
                 "tasks", "plans", "executions", "execution_steps", "evidence",
-                "approvals", "audit_events", "routing_rules",
+                "approvals", "audit_events", "routing_rules", "provider_usage",
             ):
                 tables[table] = [dict(r) for r in conn.execute(f"SELECT * FROM {table}").fetchall()]
         settings = get_settings(self.db)
         return {
-            "export_version": "1.0",
+            "export_version": "1.1",
             "generated_at": now_iso(),
             "application": {"name": "CREST", "version": VERSION},
             "settings": settings,
             "providers": self.list_providers(),
             "routing": self.list_routing(),
             "tables": tables,
-            "note": "Provider credentials are not included. API keys remain in environment variables.",
+            "note": (
+                "Provider credentials are not included. Keys stored with Windows DPAPI "
+                "remain encrypted in the application database and are never exported."
+            ),
         }
 
     def purge_old(self, *, confirm: bool, force: bool = False) -> dict[str, Any]:
@@ -1854,7 +2362,24 @@ class ProductEngine:
                     detail={"title": row["title"], "reason": "retention"}, conn=conn,
                 )
                 conn.execute("DELETE FROM tasks WHERE id=?", (row["id"],))
-        return {"purged": len(rows), "cutoff": cutoff, "retention_days": days}
+        with self.db.tx() as conn:
+            usage = conn.execute(
+                "DELETE FROM provider_usage WHERE created_at<?", (cutoff,)
+            ).rowcount
+            self._audit(
+                task_id=None, execution_id=None, event_type="RETENTION_PURGED",
+                detail={"tasks": len(rows), "usage_rows": usage, "cutoff": cutoff}, conn=conn,
+            )
+        from .logging_setup import prune_logs
+
+        logs_removed = prune_logs(self.db.path.parent, keep=5)
+        return {
+            "purged": len(rows),
+            "usage_rows": usage,
+            "log_files_removed": logs_removed,
+            "cutoff": cutoff,
+            "retention_days": days,
+        }
 
     def recover_interrupted(self) -> int:
         ts = now_iso()
@@ -1889,5 +2414,13 @@ class ProductEngine:
         return len(rows)
 
     def shutdown(self) -> None:
+        try:
+            self._audit(
+                task_id=None, execution_id=None, event_type="APPLICATION_SHUTDOWN",
+                detail={"reason": "graceful shutdown"},
+            )
+        except Exception:
+            pass
         self._shutdown.set()
         self._executor.shutdown(wait=False, cancel_futures=True)
+        self.db.checkpoint()
