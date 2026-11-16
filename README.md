@@ -17,6 +17,39 @@ environment families and distributions — not over "the real world".
 agent request -> CrestRuntime.check/execute -> admission decision -> adapter (fs/git/shell) -> audit
 ```
 
+## CREST 1.1 — native Windows daily-use build
+
+CREST 1.1 is a **native Windows desktop application** (Tauri WebView window +
+bundled Python backend sidecar), not a browser launcher. It adds DPAPI
+credential storage, CSRF/origin protection, verified backups and restore,
+schema migrations, bounded provider retries/rate limits, configurable
+Operating Modes (Manual / Supervised / Bounded autonomous), a first-run wizard,
+global pause/resume/stop-all, provider usage history, and expanded diagnostics.
+
+**Windows installation verified on Windows 11** — fresh install, native window,
+loopback API, CSRF enforcement, DPAPI storage, graceful shutdown, restart
+persistence, in-place upgrade, and data-preserving uninstall were executed and
+passed. The browser fallback (`crest_desktop.py`) is still supported.
+
+- Installer: `src-tauri\target\release\bundle\nsis\CREST_1.1.0_x64-setup.exe`
+  (build with `powershell -ExecutionPolicy Bypass -File packaging\build_windows.ps1`)
+- Verify: `powershell -ExecutionPolicy Bypass -File packaging\verify_windows.ps1`
+- Status: **WINDOWS INSTALLATION VERIFIED — SUPERVISED DAILY USE READY**
+- Guides: [installation](docs/CREST_1_1_WINDOWS_INSTALLATION.md),
+  [user manual](docs/CREST_1_1_USER_MANUAL.md),
+  [provider guide](docs/CREST_1_1_PROVIDER_GUIDE.md),
+  [autonomy/safety](docs/CREST_1_1_AUTONOMY_SAFETY.md),
+  [backup/restore](docs/CREST_1_1_BACKUP_RESTORE.md),
+  [security model](docs/CREST_1_1_SECURITY_MODEL.md),
+  [architecture](docs/CREST_1_1_ARCHITECTURE.md),
+  [troubleshooting](docs/CREST_1_1_TROUBLESHOOTING.md),
+  [changelog](docs/CREST_1_1_CHANGELOG.md),
+  [readiness evidence](docs/CREST_1_1_WINDOWS_READINESS.md)
+
+The honest limits below still apply: no live external provider calls were made,
+evidence is content-addressed but not signed, and the posture remains Level 3 —
+supervised personal use.
+
 ## CREST 1.0 product layer
 
 CREST 1.0 ships a local-first product on top of the research runtime:

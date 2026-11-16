@@ -1,0 +1,7 @@
+# Build-time dependencies for the CREST 1.1 Windows desktop package.
+pyinstaller>=6.22
+Pillow>=12.0
+pyyaml>=6
+fastapi>=0.110
+uvicorn>=0.27
+httpx>=0.27

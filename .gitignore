@@ -13,3 +13,9 @@ crest.yaml
 # Web frontend
 web/node_modules/
 web/dist/
+# CREST 1.1 Windows packaging (generated artifacts)
+node_modules/
+packaging/build/
+src-tauri/target/
+src-tauri/gen/
+src-tauri/binaries/

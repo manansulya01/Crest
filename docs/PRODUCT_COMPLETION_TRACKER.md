@@ -1,3 +1,32 @@
+# CREST Product Completion Tracker
+
+## CREST 1.1 addendum (2026-11-16)
+
+The 1.0 record below is preserved unchanged. 1.1 builds on it without replacing
+working components.
+
+| 1.1 requirement | Status | Evidence / location |
+| --- | --- | --- |
+| Native window, icon/metadata, no terminal | Complete | Tauri shell `src-tauri/src/main.rs`, icons `src-tauri/icons/`; verified native window title CREST and zero backend windows |
+| Backend lifecycle, graceful shutdown, single instance | Complete | runtime descriptor + token shutdown; single-instance plugin; verified on Windows |
+| Installer, portable dev mode, clean upgrade/uninstall | Complete | NSIS installer; browser fallback retained; upgrade + data-preserving uninstall verified |
+| Windows Credential Manager/DPAPI, no plaintext/leaks | Complete | `credentials.py`; DPAPI backend confirmed; secret absent from DB bytes and responses |
+| Loopback bind, CSRF/origin, request limits, headers | Complete | `api.py`; CSRF denial verified against installed app |
+| Schema migrations, transactions, verified backup/restore | Complete | `db.py` v1→v2, `backup.py`; roundtrip + retention soak verified |
+| Interrupted recovery, idempotent transitions, retries/timeouts, cancellation, logs, health, provider recovery | Complete | `engine.py`, `providers.py`, `logging_setup.py`; 4 bounded soak tests passing |
+| Gemini + OpenAI-compatible adapters with tests/discovery/usage/fallback | Implemented; local validated | `providers.py`; live provider calls not authorized; documented honestly |
+| Backend-enforced Manual/Supervised/Bounded modes; high-risk gated | Complete | `policy.py`; mode tests + installed-app checks |
+| Wizard, working controls, empty/error states, search/filter, themes, a11y, responsive, progress | Complete | `SetupWizard.tsx`, pages, styles; build + lint clean |
+| Windows data/log dirs, rotation, backup config, diagnostics, version info, recovery docs | Complete | `platform.py`, `logging_setup.py`, docs set |
+| Regression, reliability, Windows-specific, bounded soak | Executed | 493 full-suite tests, 4 soak tests, `packaging/verify_windows.ps1` PASS |
+| Documentation set + completion tracker | Complete | `docs/CREST_1_1_*.md`, this addendum |
+| No force-push, merge, or public release | Satisfied | Work only on `feat/crest-1.0-product` |
+
+Final status and SHAs are recorded in
+[`docs/CREST_1_1_WINDOWS_READINESS.md`](docs/CREST_1_1_WINDOWS_READINESS.md).
+
+---
+
 # CREST 1.0 — Product Completion Tracker
 
 Status: **product layer complete for the stated scope; validation recorded
